@@ -11,6 +11,7 @@ from typing import Protocol
 from backend.config import Settings, get_settings
 from backend.models import EmbeddedChunk, RepositoryChunk, RepositoryProfile, RetrievedChunk
 from backend.services.gemini import GeminiService
+from backend.services.openai import OpenAIService
 
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_]+")
@@ -160,6 +161,23 @@ class GeminiEmbeddingProvider:
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         try:
             embeddings = self.gemini_service.embed_texts(texts)
+            if not embeddings or any(not vector for vector in embeddings):
+                return self.fallback.embed_texts(texts)
+            return embeddings
+        except RuntimeError:
+            return self.fallback.embed_texts(texts)
+
+
+class OpenAIEmbeddingProvider:
+    """OpenAI embedding provider with hash fallback on transient failures."""
+
+    def __init__(self, openai_service: OpenAIService, fallback: EmbeddingProvider | None = None) -> None:
+        self.openai_service = openai_service
+        self.fallback = fallback or HashEmbeddingProvider()
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        try:
+            embeddings = self.openai_service.embed_texts(texts)
             if not embeddings or any(not vector for vector in embeddings):
                 return self.fallback.embed_texts(texts)
             return embeddings
@@ -486,6 +504,8 @@ class RepositoryRetrievalService:
 
 
 def _select_embedding_provider(settings: Settings) -> EmbeddingProvider:
+    if settings.embedding_provider == "openai" and settings.openai_api_key:
+        return OpenAIEmbeddingProvider(OpenAIService(settings=settings))
     if settings.embedding_provider == "gemini" and settings.gemini_api_key:
         return GeminiEmbeddingProvider(GeminiService(settings=settings))
     return HashEmbeddingProvider()

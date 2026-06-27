@@ -7,6 +7,12 @@ from urllib import error, parse, request
 from backend.config import Settings, get_settings
 
 
+class GeminiError(RuntimeError):
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 class GeminiService:
     """Minimal Gemini REST client for text generation and embeddings."""
 
@@ -83,10 +89,10 @@ class GeminiService:
                 raw = response.read().decode("utf-8")
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"Gemini API error: {exc.code} {detail}") from exc
+            raise GeminiError(f"Gemini API error: {exc.code} {detail}", status_code=exc.code) from exc
         except error.URLError as exc:
-            raise RuntimeError(f"Gemini API connection error: {exc.reason}") from exc
+            raise GeminiError(f"Gemini API connection error: {exc.reason}") from exc
         try:
             return json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise RuntimeError("Gemini API returned invalid JSON.") from exc
+            raise GeminiError("Gemini API returned invalid JSON.") from exc

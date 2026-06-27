@@ -118,8 +118,50 @@ class KnowledgePackBuilder:
         )
 
     def _select_key_chunks(self, chunks: list[RepositoryChunk], max_chunks: int) -> list[KnowledgePackChunk]:
-        selected = chunks[:max_chunks]
-        return [self._to_pack_chunk(chunk) for chunk in selected]
+        if not chunks:
+            return []
+
+        # Prefer diverse, higher-signal files first so UI previews are useful.
+        sorted_chunks = sorted(chunks, key=self._chunk_priority)
+        selected: list[RepositoryChunk] = []
+        per_file_counts: dict[str, int] = {}
+
+        # Pass 1: take at most one chunk per file.
+        for chunk in sorted_chunks:
+            if len(selected) >= max_chunks:
+                break
+            path_key = chunk.source_path.lower()
+            if per_file_counts.get(path_key, 0) >= 1:
+                continue
+            selected.append(chunk)
+            per_file_counts[path_key] = 1
+
+        # Pass 2: allow extra chunks per file if capacity remains.
+        if len(selected) < max_chunks:
+            for chunk in sorted_chunks:
+                if len(selected) >= max_chunks:
+                    break
+                path_key = chunk.source_path.lower()
+                if per_file_counts.get(path_key, 0) >= 2:
+                    continue
+                if chunk in selected:
+                    continue
+                selected.append(chunk)
+                per_file_counts[path_key] = per_file_counts.get(path_key, 0) + 1
+
+        return [self._to_pack_chunk(chunk) for chunk in selected[:max_chunks]]
+
+    def _chunk_priority(self, chunk: RepositoryChunk) -> tuple[int, int, str, int]:
+        lower_path = chunk.source_path.lower()
+        file_name = Path(lower_path).name
+
+        type_priority = {"source": 0, "manifest": 1, "config": 2, "documentation": 3}
+        priority = type_priority.get(chunk.chunk_type, 4)
+
+        is_hidden_meta = file_name in {".gitignore", ".gitattributes", ".editorconfig"}
+        hidden_penalty = 1 if is_hidden_meta else 0
+
+        return (hidden_penalty, priority, lower_path, chunk.start_line)
 
     def _to_pack_chunk(self, chunk: RepositoryChunk) -> KnowledgePackChunk:
         return KnowledgePackChunk(
@@ -130,4 +172,3 @@ class KnowledgePackBuilder:
             end_line=chunk.end_line,
             text_excerpt=chunk.text[:600],
         )
-

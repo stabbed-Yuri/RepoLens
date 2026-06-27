@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 
 from backend.models import RepositoryProfile, RepositoryStatistics
-from backend.services.retrieval import chunk_repository, embed_chunks, search_top_k
+from backend.services.retrieval import (
+    OpenAIEmbeddingProvider,
+    chunk_repository,
+    embed_chunks,
+    search_top_k,
+)
 
 
 class RetrievalTests(unittest.TestCase):
@@ -69,6 +74,18 @@ class RetrievalTests(unittest.TestCase):
         self.assertTrue(any(chunk.source_path == "README.md" for chunk in chunks))
         self.assertTrue(results)
         self.assertEqual(results[0].chunk.source_path, "package.json")
+
+    def test_openai_embedding_provider_falls_back(self) -> None:
+        class FailingOpenAI:
+            def embed_texts(self, texts: list[str]) -> list[list[float]]:
+                _ = texts
+                raise RuntimeError("simulated provider failure")
+
+        provider = OpenAIEmbeddingProvider(openai_service=FailingOpenAI())  # type: ignore[arg-type]
+        vectors = provider.embed_texts(["hello world"])
+
+        self.assertEqual(len(vectors), 1)
+        self.assertTrue(vectors[0])
 
 
 if __name__ == "__main__":

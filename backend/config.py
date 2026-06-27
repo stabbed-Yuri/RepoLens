@@ -16,10 +16,14 @@ class Settings(BaseModel):
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
     github_api_base_url: str = "https://api.github.com"
     firestore_project_id: str | None = None
+    openai_model: str = "gpt-4.1-mini"
+    openai_api_key: str | None = None
+    openai_timeout_seconds: int = 30
+    openai_embedding_model: str = "text-embedding-3-small"
     gemini_model: str = "gemini-2.5-flash"
     gemini_api_key: str | None = None
     gemini_embedding_model: str = "text-embedding-004"
-    embedding_provider: str = "hash"
+    embedding_provider: str = "openai"
     gemini_timeout_seconds: int = 30
     retrieval_store_path: str | None = None
     retrieval_chunk_max_chars: int = 1400
@@ -48,6 +52,13 @@ class Settings(BaseModel):
                 "https://api.github.com",
             ),
             firestore_project_id=os.getenv("REPOLENS_FIRESTORE_PROJECT_ID"),
+            openai_model=os.getenv("REPOLENS_OPENAI_MODEL", "gpt-4.1-mini"),
+            openai_api_key=os.getenv("OPENAI_API_KEY") or os.getenv("REPOLENS_OPENAI_API_KEY"),
+            openai_timeout_seconds=int(os.getenv("REPOLENS_OPENAI_TIMEOUT_SECONDS", "30")),
+            openai_embedding_model=os.getenv(
+                "REPOLENS_OPENAI_EMBEDDING_MODEL",
+                "text-embedding-3-small",
+            ),
             gemini_model=os.getenv("REPOLENS_GEMINI_MODEL", "gemini-2.5-flash"),
             gemini_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("REPOLENS_GEMINI_API_KEY"),
             gemini_embedding_model=os.getenv(

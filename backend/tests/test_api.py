@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from backend.app import app
 from backend.models import KnowledgePack, KnowledgePackStats, RepositoryProfile
+from backend.models import InterviewAnswerResponse
 
 
 class ApiTests(unittest.TestCase):
@@ -52,7 +53,41 @@ class ApiTests(unittest.TestCase):
             json={"session_id": "session_stub_001", "answer": "It is a demo app."},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["next_action"], "wait_for_gemini")
+        self.assertEqual(response.json()["next_action"], "retry_later")
+
+    def test_interview_answer_continue_interview_shape(self) -> None:
+        payload = InterviewAnswerResponse(
+            session_id="session_x",
+            evaluation="Strong answer with repo-specific details.",
+            follow_up_question="What trade-offs would you call out next?",
+            next_action="continue_interview",
+        )
+        with patch("backend.routes.interview.interview_service.answer", return_value=payload):
+            response = self.client.post(
+                "/interview/answer",
+                json={"session_id": "session_x", "answer": "Some answer"},
+            )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["next_action"], "continue_interview")
+        self.assertTrue(body["follow_up_question"])
+
+    def test_interview_answer_retry_later_shape(self) -> None:
+        payload = InterviewAnswerResponse(
+            session_id="session_x",
+            evaluation="Provider unavailable. Retry shortly.",
+            follow_up_question="Summarize one module responsibility.",
+            next_action="retry_later",
+        )
+        with patch("backend.routes.interview.interview_service.answer", return_value=payload):
+            response = self.client.post(
+                "/interview/answer",
+                json={"session_id": "session_x", "answer": "Some answer"},
+            )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["next_action"], "retry_later")
+        self.assertIn("evaluation", body)
 
     def test_analyze_knowledge_pack(self) -> None:
         profile = RepositoryProfile(

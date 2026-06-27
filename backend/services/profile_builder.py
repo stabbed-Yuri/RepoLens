@@ -107,7 +107,12 @@ class RepositoryProfileBuilder:
             documentation_files,
             inputs.classified_files,
         )
-        frameworks = self._frameworks(inputs.classified_files, inputs.dependency_manifests, inputs.readme_text)
+        frameworks = self._frameworks(
+            inputs.classified_files,
+            inputs.dependency_manifests,
+            inputs.readme_text,
+            all_files,
+        )
         feature_signals = self._feature_signals(
             inputs.classified_files,
             frameworks,
@@ -135,6 +140,11 @@ class RepositoryProfileBuilder:
             config_files=config_files,
             documentation_files=documentation_files,
             feature_signals=feature_signals,
+            repo_type_summary=self._repo_type_summary(
+                frameworks=frameworks,
+                classified_files=inputs.classified_files,
+                dependency_manifests=inputs.dependency_manifests,
+            ),
             statistics=RepositoryStatistics(
                 file_count=len(all_files),
                 directory_count=self._directory_count(all_files),
@@ -235,6 +245,7 @@ class RepositoryProfileBuilder:
         classified_files: ClassifiedFiles,
         dependency_manifests: list[DependencyManifest],
         readme_text: str | None,
+        all_files: list[str],
     ) -> list[str]:
         frameworks: set[str] = set()
         for manifest in dependency_manifests:
@@ -244,6 +255,11 @@ class RepositoryProfileBuilder:
             for framework in ("react", "next", "vue", "svelte", "fastapi", "django", "flask", "spring", "flutter"):
                 if framework in lower:
                     frameworks.add(framework)
+        lower_files = [item.lower() for item in all_files]
+        if any(item.endswith(".sln") for item in lower_files):
+            frameworks.add("dotnet")
+        if any(item.endswith(".rdl") or item.endswith(".rptproj") for item in lower_files):
+            frameworks.add("ssrs")
         if classified_files.primary_language:
             frameworks.add(classified_files.primary_language.lower())
         return sorted(frameworks)
@@ -309,6 +325,29 @@ class RepositoryProfileBuilder:
         if not text:
             return None
         return text[:8000]
+
+    def _repo_type_summary(
+        self,
+        *,
+        frameworks: list[str],
+        classified_files: ClassifiedFiles,
+        dependency_manifests: list[DependencyManifest],
+    ) -> str | None:
+        primary_language = classified_files.primary_language or "unknown language"
+        if frameworks:
+            top_frameworks = ", ".join(frameworks[:3])
+            return f"{primary_language} repository with {top_frameworks}"
+        if dependency_manifests:
+            managers = sorted(
+                {
+                    manifest.package_manager
+                    for manifest in dependency_manifests
+                    if manifest.package_manager
+                }
+            )
+            if managers:
+                return f"{primary_language} repository with {', '.join(managers[:2])} dependencies"
+        return f"{primary_language} repository"
 
     def _repo_name(self, repo_path: Path, repo_url: str) -> str:
         parsed = urlparse(repo_url)

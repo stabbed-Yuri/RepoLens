@@ -22,6 +22,13 @@ def build_start_question_prompt(pack: KnowledgePack) -> str:
     )
 
 
+def build_start_question_retry_prompt(pack: KnowledgePack) -> str:
+    return (
+        build_start_question_prompt(pack)
+        + "\nReturn one complete sentence ending with '?'. No markdown, no code fences."
+    )
+
+
 def build_answer_evaluation_prompt(
     *,
     pack: KnowledgePack,
@@ -40,4 +47,14 @@ def build_answer_evaluation_prompt(
         f"Answer: {answer}\n\n"
         "Repository context excerpts:\n"
         f"{supporting_chunks}"
+    )
+
+
+def build_answer_repair_prompt(raw_output: str) -> str:
+    return (
+        "Rewrite the following model output into valid JSON with keys "
+        '"evaluation" and "follow_up_question".\n'
+        "If follow_up_question is not present, set it to an empty string.\n"
+        "Return JSON only.\n\n"
+        f"Output to repair:\n{raw_output}"
     )

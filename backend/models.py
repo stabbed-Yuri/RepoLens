@@ -117,6 +117,7 @@ class RepositoryProfile(BaseModel):
     feature_signals: list[str] = Field(default_factory=list)
     statistics: RepositoryStatistics = Field(default_factory=RepositoryStatistics)
     classification_tool: str = "linguist-compatible"
+    repo_type_summary: str | None = None
     scanned_at: datetime = Field(default_factory=utc_now)
 
     @property
@@ -157,7 +158,7 @@ class InterviewAnswerResponse(BaseModel):
     session_id: str
     evaluation: str
     follow_up_question: str | None = None
-    next_action: str = "wait_for_gemini"
+    next_action: Literal["continue_interview", "study_plan_ready", "retry_later"] = "retry_later"
 
 
 class HealthResponse(BaseModel):

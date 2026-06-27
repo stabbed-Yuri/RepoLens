@@ -1,4 +1,14 @@
-export const apiBaseUrl = "/api";
+import type {
+  AnalyzeRequest,
+  InterviewAnswerRequest,
+  InterviewAnswerResponse,
+  InterviewStartRequest,
+  InterviewStartResponse,
+  KnowledgePack,
+  RepositoryProfile,
+} from "../types/contracts";
+
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export type RequestOptions = {
   method?: "GET" | "POST";
@@ -25,3 +35,34 @@ export async function apiRequest<TResponse>(
   return (await response.json()) as TResponse;
 }
 
+export function analyzeRepository(payload: AnalyzeRequest): Promise<RepositoryProfile> {
+  return apiRequest<RepositoryProfile>("/analyze", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function buildKnowledgePack(payload: AnalyzeRequest): Promise<KnowledgePack> {
+  return apiRequest<KnowledgePack>("/analyze/knowledge-pack", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function startInterview(
+  payload: InterviewStartRequest,
+): Promise<InterviewStartResponse> {
+  return apiRequest<InterviewStartResponse>("/interview/start", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function answerInterview(
+  payload: InterviewAnswerRequest,
+): Promise<InterviewAnswerResponse> {
+  return apiRequest<InterviewAnswerResponse>("/interview/answer", {
+    method: "POST",
+    body: payload,
+  });
+}

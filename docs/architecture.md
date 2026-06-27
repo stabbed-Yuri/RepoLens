@@ -2,81 +2,58 @@
 
 ## System Overview
 
-RepoLens is designed as a small, modular system that converts a GitHub repository URL into a personalized interview workflow.
+RepoLens converts a GitHub repository URL into a compact knowledge context and a dynamic interview loop.
 
-1. The frontend collects a repository URL and manages lightweight authenticated session state.
-2. The backend fetches repository metadata, extracts a compact repository profile, and stores interview progress in Firestore.
-3. Gemini consumes the compact repository profile, not the full repository, to produce:
-   - repository understanding
-   - dynamic interview questions
-   - answer evaluations
-   - follow-up questions
-   - study plans
+1. Frontend submits repository URL and renders analyze/interview chat experiences.
+2. Backend clones/scans repository, builds `RepositoryProfile`, then builds `KnowledgePack`.
+3. Interview service uses prompts + LLM provider (OpenAI default) to generate/evaluate each turn.
+4. Retrieval layer provides token-efficient context chunks for interview prompts.
 
 ## Core Flow
 
 ```text
-Frontend
-  -> FastAPI API
-  -> GitHub fetch + repository profiler
-  -> RepositoryProfile
-  -> Gemini orchestration
-  -> Interview session persistence in Firestore
-  -> Frontend renders each turn
+Frontend (React/Vite)
+  -> FastAPI routes
+  -> Scanner + ProfileBuilder (language-agnostic)
+  -> Retrieval (chunk + embedding + top-k)
+  -> KnowledgePack
+  -> InterviewService (OpenAI default, fallback safe paths)
+  -> Chat UI next turn rendering
 ```
 
 ## Backend Boundaries
 
-- `api/`
-  - HTTP routes and request/response handling only
-- `models/`
-  - Pydantic models for API contracts and typed domain data
-- `services/github_client.py`
-  - Repository metadata access and archive/content fetch planning
-- `services/repository_profiler.py`
-  - Compact, language-agnostic profiling and classification boundary
-- `services/gemini_service.py`
-  - Prompt selection, Gemini calls, and response parsing
-- `services/session_store.py`
-  - Firestore persistence for sessions, turns, reports, and caches
-- `services/auth_service.py`
-  - Session ownership coordination around Firebase Auth identities
-- `core/settings.py`
-  - Environment-driven configuration
+- `backend/routes/*`: HTTP endpoints only
+- `backend/models.py`: Pydantic request/response + domain models
+- `backend/services/scanner.py`: repository clone + classification + extraction
+- `backend/services/profile_builder.py`: compact profile and repo-type summary
+- `backend/services/retrieval.py`: chunking/embedding/search abstractions (`openai|hash|gemini`)
+- `backend/services/knowledge_pack.py`: profile + retrieval output assembly
+- `backend/services/interview.py`: question/evaluation orchestration and fallback semantics
+- `backend/services/openai.py`: OpenAI generation + embeddings client
+- `backend/services/gemini.py`: optional Gemini embedding compatibility path
+- `backend/config.py`: env-driven settings and defaults
 
 ## Frontend Boundaries
 
-- `pages/`
-  - Screen-level composition
-- `components/`
-  - Shared presentational shells
-- `api/`
-  - Backend client wrappers and request typing
-- `types/`
-  - Shared frontend contract shapes
-- `state/`
-  - Auth and session state placeholders
+- `frontend/src/pages/AnalyzePage.tsx`: repository analyze + knowledge pack preview
+- `frontend/src/pages/InterviewPage.tsx`: chat-style interview thread + retry UX
+- `frontend/src/api/client.ts`: typed API wrappers
+- `frontend/src/types/contracts.ts`: frontend contract shapes
 
-## Data Objects
+## Reliability Semantics
 
-- `RepositoryProfile`
-  - compact repository summary
-  - stack and architecture signals
-  - interview focus areas
-  - repository stats and classification hints
-- `InterviewSession`
-  - session metadata, turns, ownership, status
-- `InterviewTurn`
-  - generated question, submitted answer, evaluation, follow-up
-- `StudyPlan`
-  - prioritized learning actions derived from the interview
+- Interview answer responses standardize `next_action`:
+  - `continue_interview`
+  - `study_plan_ready`
+  - `retry_later`
+- Repeated follow-up prompts are deduped server-side.
+- Provider failures return explicit fallback evaluations instead of placeholder stubs.
 
-## Deployment Shape
+## Deployment Shape (Target)
 
-- Frontend hosted on Firebase Hosting
-- Backend container deployed to Cloud Run
-- Firestore used for session/report storage and cacheable artifacts
-- Secret Manager used for Gemini and Firebase-related secrets
-- Artifact Registry stores backend container images
-- Cloud Build builds and pushes deployable artifacts
-
+- Frontend: Firebase Hosting
+- Backend: Cloud Run
+- Firestore: session/report/cache persistence (later slice)
+- Secret Manager: API keys
+- Artifact Registry + Cloud Build: build/deploy pipeline

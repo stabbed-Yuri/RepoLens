@@ -1,0 +1,45 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - backend/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$SHORT_SHA
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$SHORT_SHA
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE_NAME}
+      - --image
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$SHORT_SHA
+      - --region
+      - ${_REGION}
+      - --platform
+      - managed
+      - --allow-unauthenticated
+      - --set-secrets
+      - OPENAI_API_KEY=${_OPENAI_SECRET}:latest
+      - --set-env-vars
+      - REPOLENS_OPENAI_MODEL=${_OPENAI_MODEL},REPOLENS_OPENAI_EMBEDDING_MODEL=${_OPENAI_EMBEDDING_MODEL},REPOLENS_EMBEDDING_PROVIDER=${_EMBEDDING_PROVIDER}
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_BACKEND_IMAGE}:$SHORT_SHA
+
+substitutions:
+  _REGION: us-central1
+  _REPOSITORY: repolens
+  _BACKEND_IMAGE: backend
+  _SERVICE_NAME: repolens-backend
+  _OPENAI_SECRET: openai-api-key
+  _OPENAI_MODEL: gpt-4.1-mini
+  _OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+  _EMBEDDING_PROVIDER: openai

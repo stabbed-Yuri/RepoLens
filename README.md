@@ -1,76 +1,74 @@
 # RepoLens
 
-RepoLens is an AI-powered interview coach for GitHub repositories. A user submits a GitHub repository URL, RepoLens builds a compact `RepositoryProfile`, uses Gemini to understand the project, then runs a personalized interview one question at a time with follow-up questions, answer evaluation, and a study plan.
+RepoLens is an AI-powered interview coach for GitHub repositories. A user submits a repository URL, RepoLens builds a compact `RepositoryProfile` + `KnowledgePack`, then runs dynamic interview Q&A one turn at a time.
 
-This repository currently contains the foundation slice only. The codebase defines the project structure, typed contracts, placeholder backend and frontend modules, prompt inventory, and Google Cloud setup docs that the next implementation pass will build on.
+Current intelligence defaults:
+- Interview generation/evaluation: OpenAI (`gpt-4.1-mini`)
+- Embeddings/retrieval: OpenAI (`text-embedding-3-small`) with deterministic hash fallback
 
-## Product Constraints
+## Runtime API
 
-- Backend: Python + FastAPI
-- Frontend: React + Vite
-- Repository analysis: language-agnostic, with GitHub Linguist or equivalent established classification tooling
-- LLM: Gemini for repository understanding, question generation, answer evaluation, follow-up generation, and study plan generation
-- Deployment target:
-  - Cloud Run for the backend
-  - Firebase Hosting for the frontend
-  - Firestore for session and report storage
-  - Secret Manager for API keys
-  - Artifact Registry and Cloud Build for image build and deploy workflows
-- Prompt assets must live outside inline code paths, under `backend/prompts/` or `docs/prompts.md`
+- `GET /health`
+- `POST /analyze`
+- `POST /analyze/knowledge-pack`
+- `POST /interview/start`
+- `POST /interview/answer`
 
-## Repository Layout
+These routes are active in [backend/app.py](/C:/Users/GIGABYTE/Documents/RepoLens/backend/app.py) and consumed by the React frontend.
 
-```text
-backend/
-  app/
-    api/
-    core/
-    models/
-    prompts/
-    services/
-  tests/
-frontend/
-  src/
-docs/
-AGENTS.md
-SKILL.md
-README.md
+## Current Capabilities
+
+- Language-agnostic repository scan + profile construction
+- Knowledge-pack builder with chunking, embeddings, and topic hits
+- Chat-style dynamic interview flow with standardized `next_action` semantics:
+  - `continue_interview`
+  - `study_plan_ready`
+  - `retry_later`
+- Rate-limit/provider-failure fallback messaging for demo reliability
+
+## Local Run
+
+Backend:
+```bash
+python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
 ```
 
-## Planned API Surface
+Frontend:
+```bash
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0 --port 5173
+```
 
-- `POST /api/repositories/profile`
-- `POST /api/interviews/start`
-- `POST /api/interviews/{session_id}/answer`
-- `GET /api/interviews/{session_id}`
-- `POST /api/interviews/{session_id}/study-plan`
+## Environment
 
-The route handlers currently return `501 Not Implemented` while the schema contracts and service boundaries are established.
+Use `backend/.env`:
 
-## Current Deliverables
+```env
+OPENAI_API_KEY=...
+REPOLENS_OPENAI_MODEL=gpt-4.1-mini
+REPOLENS_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+REPOLENS_EMBEDDING_PROVIDER=openai
+```
 
-- Backend package skeleton with typed Pydantic models
-- Placeholder FastAPI routers and service interfaces
-- Frontend React + Vite scaffold with typed client-side contracts
-- Prompt inventory in [docs/prompts.md](/C:/Users/GIGABYTE/Documents/RepoLens/docs/prompts.md)
-- Architecture and deployment docs in [docs/architecture.md](/C:/Users/GIGABYTE/Documents/RepoLens/docs/architecture.md), [docs/api-contracts.md](/C:/Users/GIGABYTE/Documents/RepoLens/docs/api-contracts.md), and [docs/gcp-setup.md](/C:/Users/GIGABYTE/Documents/RepoLens/docs/gcp-setup.md)
-- Critical-path backend tests for settings, schema round-trips, and prompt coverage
+Optional embedding providers:
+- `REPOLENS_EMBEDDING_PROVIDER=hash`
+- `REPOLENS_EMBEDDING_PROVIDER=gemini` (requires Gemini key/model config)
 
-## Local Verification
+## Testing
 
-Backend tests can be run with:
-
+Backend:
 ```bash
 python -m unittest discover backend/tests
 ```
 
-The frontend is scaffolded for Vite but dependencies are not installed in this slice.
+Frontend:
+```bash
+cd frontend
+npm run test
+```
 
-## Next Implementation Slice
+## Notes
 
-1. Implement GitHub repository fetch and compact profiling.
-2. Integrate GitHub Linguist or equivalent repository classification tooling.
-3. Add Gemini-backed repository understanding.
-4. Implement interview session orchestration and Firestore persistence.
-5. Connect the frontend to live backend endpoints and Firebase Auth email-link flows.
-
+- Prompt assets are maintained in [backend/prompts/](/C:/Users/GIGABYTE/Documents/RepoLens/backend/prompts/) and [docs/prompts.md](/C:/Users/GIGABYTE/Documents/RepoLens/docs/prompts.md).
+- The legacy scaffold under `backend/app/*` is non-runtime reference structure for now.
