@@ -68,6 +68,38 @@ class RetrievedChunk(BaseModel):
     score: float
 
 
+class KnowledgePackChunk(BaseModel):
+    chunk_id: str
+    source_path: str
+    chunk_type: Literal["source", "documentation", "config", "manifest"]
+    start_line: int
+    end_line: int
+    text_excerpt: str
+
+
+class KnowledgePackTopicHit(BaseModel):
+    topic: str
+    score: float
+    chunk: KnowledgePackChunk
+
+
+class KnowledgePackStats(BaseModel):
+    chunk_count: int = 0
+    embedded_chunk_count: int = 0
+    embedding_dimensions: int = 0
+
+
+class KnowledgePack(BaseModel):
+    repo_name: str
+    repo_url: HttpUrl
+    repo_sha: str
+    profile: RepositoryProfile
+    key_chunks: list[KnowledgePackChunk] = Field(default_factory=list)
+    topic_hits: dict[str, list[KnowledgePackTopicHit]] = Field(default_factory=dict)
+    stats: KnowledgePackStats = Field(default_factory=KnowledgePackStats)
+    generated_at: datetime = Field(default_factory=utc_now)
+
+
 class RepositoryProfile(BaseModel):
     repo_name: str
     repo_url: HttpUrl
