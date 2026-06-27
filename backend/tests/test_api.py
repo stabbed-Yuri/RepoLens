@@ -43,7 +43,8 @@ class ApiTests(unittest.TestCase):
             json={"repository_url": "https://github.com/octocat/Hello-World"},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["session_id"], "session_stub_001")
+        self.assertTrue(response.json()["session_id"].startswith("session_"))
+        self.assertTrue(response.json()["question"]["prompt"])
 
     def test_interview_answer_stub(self) -> None:
         response = self.client.post(

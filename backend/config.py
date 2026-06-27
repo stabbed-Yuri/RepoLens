@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 import os
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,10 @@ class Settings(BaseModel):
     github_api_base_url: str = "https://api.github.com"
     firestore_project_id: str | None = None
     gemini_model: str = "gemini-2.5-flash"
+    gemini_api_key: str | None = None
+    gemini_embedding_model: str = "text-embedding-004"
+    embedding_provider: str = "hash"
+    gemini_timeout_seconds: int = 30
     retrieval_store_path: str | None = None
     retrieval_chunk_max_chars: int = 1400
     retrieval_chunk_overlap_chars: int = 160
@@ -25,6 +30,7 @@ class Settings(BaseModel):
     @classmethod
     def from_env(cls) -> "Settings":
         """Load settings from environment variables."""
+        _load_env_file()
         raw_origins = os.getenv("REPOLENS_CORS_ORIGINS")
         cors_origins = (
             [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
@@ -43,6 +49,13 @@ class Settings(BaseModel):
             ),
             firestore_project_id=os.getenv("REPOLENS_FIRESTORE_PROJECT_ID"),
             gemini_model=os.getenv("REPOLENS_GEMINI_MODEL", "gemini-2.5-flash"),
+            gemini_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("REPOLENS_GEMINI_API_KEY"),
+            gemini_embedding_model=os.getenv(
+                "REPOLENS_GEMINI_EMBEDDING_MODEL",
+                "text-embedding-004",
+            ),
+            embedding_provider=os.getenv("REPOLENS_EMBEDDING_PROVIDER", "hash").lower(),
+            gemini_timeout_seconds=int(os.getenv("REPOLENS_GEMINI_TIMEOUT_SECONDS", "30")),
             retrieval_store_path=os.getenv("REPOLENS_RETRIEVAL_STORE_PATH"),
             retrieval_chunk_max_chars=int(os.getenv("REPOLENS_RETRIEVAL_CHUNK_MAX_CHARS", "1400")),
             retrieval_chunk_overlap_chars=int(
@@ -51,6 +64,23 @@ class Settings(BaseModel):
             retrieval_max_file_bytes=int(os.getenv("REPOLENS_RETRIEVAL_MAX_FILE_BYTES", "250000")),
             retrieval_top_k_default=int(os.getenv("REPOLENS_RETRIEVAL_TOP_K_DEFAULT", "5")),
         )
+
+
+def _load_env_file() -> None:
+    env_file = os.getenv("REPOLENS_ENV_FILE", "backend/.env")
+    env_path = Path(env_file)
+    if not env_path.exists() or not env_path.is_file():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
 
 
 @lru_cache(maxsize=1)

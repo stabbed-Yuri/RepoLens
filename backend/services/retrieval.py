@@ -8,8 +8,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from backend.config import get_settings
+from backend.config import Settings, get_settings
 from backend.models import EmbeddedChunk, RepositoryChunk, RepositoryProfile, RetrievedChunk
+from backend.services.gemini import GeminiService
 
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_]+")
@@ -149,6 +150,23 @@ class HashEmbeddingProvider:
         return int.from_bytes(digest, "big") % self.dimensions
 
 
+class GeminiEmbeddingProvider:
+    """Gemini embedding provider with hash fallback on transient failures."""
+
+    def __init__(self, gemini_service: GeminiService, fallback: EmbeddingProvider | None = None) -> None:
+        self.gemini_service = gemini_service
+        self.fallback = fallback or HashEmbeddingProvider()
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        try:
+            embeddings = self.gemini_service.embed_texts(texts)
+            if not embeddings or any(not vector for vector in embeddings):
+                return self.fallback.embed_texts(texts)
+            return embeddings
+        except RuntimeError:
+            return self.fallback.embed_texts(texts)
+
+
 @dataclass(slots=True)
 class ChunkIndex:
     chunks: list[RepositoryChunk] = field(default_factory=list)
@@ -164,7 +182,7 @@ class RepositoryRetrievalService:
         storage_path: Path | None = None,
     ) -> None:
         settings = get_settings()
-        self.embedding_provider = embedding_provider or HashEmbeddingProvider()
+        self.embedding_provider = embedding_provider or _select_embedding_provider(settings)
         self.storage_path = storage_path or (
             Path(settings.retrieval_store_path) if settings.retrieval_store_path else None
         )
@@ -465,6 +483,12 @@ class RepositoryRetrievalService:
         chunks = [RepositoryChunk.model_validate(item) for item in payload.get("chunks", [])]
         embedded_chunks = [EmbeddedChunk.model_validate(item) for item in payload.get("embedded_chunks", [])]
         return ChunkIndex(chunks=chunks, embedded_chunks=embedded_chunks)
+
+
+def _select_embedding_provider(settings: Settings) -> EmbeddingProvider:
+    if settings.embedding_provider == "gemini" and settings.gemini_api_key:
+        return GeminiEmbeddingProvider(GeminiService(settings=settings))
+    return HashEmbeddingProvider()
 
 
 _default_service = RepositoryRetrievalService()
