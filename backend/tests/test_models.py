@@ -1,52 +1,43 @@
 import unittest
 
-from backend.app.models.interview import InterviewSession, InterviewStatus, StudyPlan
-from backend.app.models.repository import RepositoryProfile
+from backend.models import (
+    AnalyzeRequest,
+    DependencyManifest,
+    RepositoryProfile,
+)
 
 
 class ModelRoundTripTests(unittest.TestCase):
     def test_repository_profile_round_trip(self) -> None:
+        request = AnalyzeRequest(repository_url="https://github.com/octocat/Hello-World")
         profile = RepositoryProfile(
-            repository_url="https://github.com/octocat/Hello-World",
-            repository_name="Hello-World",
-            owner="octocat",
-            default_branch="main",
-            short_summary="Compact repository profile placeholder.",
-            architecture_notes=["API and frontend live in separate top-level directories."],
-            key_technologies=["FastAPI", "React"],
-            interview_focus_areas=["architecture", "tooling"],
+            repo_url="https://github.com/octocat/Hello-World",
+            repo_name="Hello-World",
+            primary_language="TypeScript",
+            language_breakdown={"TypeScript": 0.8, "Python": 0.2},
+            frameworks=["react"],
+            dependencies=[
+                DependencyManifest(
+                    path="package.json",
+                    manifest_type="package.json",
+                    package_manager="npm",
+                    dependencies=["react"],
+                    framework_hints=["react"],
+                )
+            ],
+            entry_points=["src/main.tsx"],
+            folder_tree=["README.md", "src/main.tsx"],
+            readme_text="# Hello World",
+            important_files=["README.md"],
+            test_files=["tests/test_app.py"],
+            config_files=["package.json"],
+            documentation_files=["README.md"],
+            feature_signals=["has-readme"],
         )
 
-        payload = profile.model_dump(mode="json")
-        reloaded = RepositoryProfile.model_validate(payload)
-
-        self.assertEqual(reloaded.repository_name, "Hello-World")
-        self.assertEqual(reloaded.owner, "octocat")
-        self.assertEqual(reloaded.classification_tool, "github-linguist")
-
-    def test_interview_session_round_trip(self) -> None:
-        session = InterviewSession(
-            session_id="session_demo_001",
-            repository_url="https://github.com/octocat/Hello-World",
-            user_id="user_123",
-            status=InterviewStatus.IN_PROGRESS,
-        )
-
-        payload = session.model_dump(mode="json")
-        reloaded = InterviewSession.model_validate(payload)
-
-        self.assertEqual(reloaded.session_id, "session_demo_001")
-        self.assertEqual(reloaded.status, InterviewStatus.IN_PROGRESS)
-        self.assertIsNone(reloaded.study_plan)
-
-    def test_study_plan_score_is_optional(self) -> None:
-        study_plan = StudyPlan(summary="Keep practicing concise architecture explanations.")
-        payload = study_plan.model_dump(mode="json")
-        reloaded = StudyPlan.model_validate(payload)
-
-        self.assertIsNone(reloaded.overall_score)
+        self.assertEqual(AnalyzeRequest.model_validate(request.model_dump()).repository_url.host, "github.com")
+        self.assertEqual(RepositoryProfile.model_validate(profile.model_dump()).primary_language, "TypeScript")
 
 
 if __name__ == "__main__":
     unittest.main()
-
