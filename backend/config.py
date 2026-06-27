@@ -7,6 +7,10 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 
+def _normalize_origin(origin: str) -> str:
+    return origin.strip().rstrip("/")
+
+
 class Settings(BaseModel):
     """Environment-driven backend settings."""
 
@@ -37,7 +41,7 @@ class Settings(BaseModel):
         _load_env_file()
         raw_origins = os.getenv("REPOLENS_CORS_ORIGINS")
         cors_origins = (
-            [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+            [_normalize_origin(origin) for origin in raw_origins.split(",") if origin.strip()]
             if raw_origins
             else ["http://localhost:5173"]
         )
