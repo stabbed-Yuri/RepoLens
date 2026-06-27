@@ -16,6 +16,11 @@ class Settings(BaseModel):
     github_api_base_url: str = "https://api.github.com"
     firestore_project_id: str | None = None
     gemini_model: str = "gemini-2.5-flash"
+    retrieval_store_path: str | None = None
+    retrieval_chunk_max_chars: int = 1400
+    retrieval_chunk_overlap_chars: int = 160
+    retrieval_max_file_bytes: int = 250_000
+    retrieval_top_k_default: int = 5
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -38,6 +43,13 @@ class Settings(BaseModel):
             ),
             firestore_project_id=os.getenv("REPOLENS_FIRESTORE_PROJECT_ID"),
             gemini_model=os.getenv("REPOLENS_GEMINI_MODEL", "gemini-2.5-flash"),
+            retrieval_store_path=os.getenv("REPOLENS_RETRIEVAL_STORE_PATH"),
+            retrieval_chunk_max_chars=int(os.getenv("REPOLENS_RETRIEVAL_CHUNK_MAX_CHARS", "1400")),
+            retrieval_chunk_overlap_chars=int(
+                os.getenv("REPOLENS_RETRIEVAL_CHUNK_OVERLAP_CHARS", "160")
+            ),
+            retrieval_max_file_bytes=int(os.getenv("REPOLENS_RETRIEVAL_MAX_FILE_BYTES", "250000")),
+            retrieval_top_k_default=int(os.getenv("REPOLENS_RETRIEVAL_TOP_K_DEFAULT", "5")),
         )
 
 
@@ -45,4 +57,3 @@ class Settings(BaseModel):
 def get_settings() -> Settings:
     """Return a cached settings object."""
     return Settings.from_env()
-

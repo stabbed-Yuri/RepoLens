@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -43,6 +44,28 @@ class RepositoryStatistics(BaseModel):
     test_file_count: int = 0
     entry_point_count: int = 0
     dependency_manifest_count: int = 0
+
+
+class RepositoryChunk(BaseModel):
+    chunk_id: str
+    repo_name: str
+    repo_url: HttpUrl
+    source_path: str
+    chunk_type: Literal["source", "documentation", "config", "manifest"]
+    text: str
+    start_line: int = 1
+    end_line: int = 1
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class EmbeddedChunk(BaseModel):
+    chunk: RepositoryChunk
+    embedding: list[float] = Field(default_factory=list)
+
+
+class RetrievedChunk(BaseModel):
+    chunk: RepositoryChunk
+    score: float
 
 
 class RepositoryProfile(BaseModel):
