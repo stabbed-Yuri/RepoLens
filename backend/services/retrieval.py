@@ -504,11 +504,18 @@ class RepositoryRetrievalService:
 
 
 def _select_embedding_provider(settings: Settings) -> EmbeddingProvider:
+    hash_fallback = HashEmbeddingProvider()
+    
     if settings.embedding_provider == "openai" and settings.openai_api_key:
-        return OpenAIEmbeddingProvider(OpenAIService(settings=settings))
+        return OpenAIEmbeddingProvider(OpenAIService(settings=settings), fallback=hash_fallback)
+        
     if settings.embedding_provider == "gemini" and settings.gemini_api_key:
-        return GeminiEmbeddingProvider(GeminiService(settings=settings))
-    return HashEmbeddingProvider()
+        openai_fallback = None
+        if settings.openai_api_key:
+            openai_fallback = OpenAIEmbeddingProvider(OpenAIService(settings=settings), fallback=hash_fallback)
+        return GeminiEmbeddingProvider(GeminiService(settings=settings), fallback=openai_fallback or hash_fallback)
+        
+    return hash_fallback
 
 
 _default_service = RepositoryRetrievalService()
