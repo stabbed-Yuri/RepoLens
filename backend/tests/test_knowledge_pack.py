@@ -58,7 +58,31 @@ class KnowledgePackBuilderTests(unittest.TestCase):
 
         top_paths = [chunk.source_path for chunk in pack.key_chunks[:3]]
         self.assertIn("src/main.ts", top_paths)
-        self.assertNotEqual(top_paths[0], ".gitignore")
+        self.assertNotIn(".gitignore", [chunk.source_path for chunk in pack.key_chunks])
+
+    def test_key_chunks_exclude_low_value_dotfiles_when_substantive_files_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            (repo / "Report ProjectI036").mkdir()
+            (repo / ".gitignore").write_text("bin/\nobj/\n", encoding="utf-8")
+            (repo / ".gitattributes").write_text("* text=auto\n", encoding="utf-8")
+            (repo / "Report ProjectI036" / "DataSource1.rds").write_text(
+                "<RptDataSource><Name>DataSource1</Name></RptDataSource>",
+                encoding="utf-8",
+            )
+            (repo / "Report ProjectI036" / "Report1.rdl").write_text(
+                "<Report><DataSets><DataSet Name=\"DataSet1\" /></DataSets></Report>",
+                encoding="utf-8",
+            )
+
+            builder = KnowledgePackBuilder()
+            pack = builder.build_from_path(repo, "https://github.com/octocat/report-demo")
+
+        paths = [chunk.source_path for chunk in pack.key_chunks]
+        self.assertIn("Report ProjectI036/DataSource1.rds", paths)
+        self.assertIn("Report ProjectI036/Report1.rdl", paths)
+        self.assertNotIn(".gitignore", paths)
+        self.assertNotIn(".gitattributes", paths)
 
 
 if __name__ == "__main__":

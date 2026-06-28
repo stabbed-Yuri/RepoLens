@@ -14,4 +14,4 @@ def analyze(request: AnalyzeRequest) -> RepositoryProfile:
 
 @router.post("/analyze/knowledge-pack", response_model=KnowledgePack)
 def analyze_knowledge_pack(request: AnalyzeRequest) -> KnowledgePack:
-    return analyzer.build_knowledge_pack(str(request.repository_url))
+    return analyzer.build_knowledge_pack(str(request.repository_url), model_provider=request.model_provider)

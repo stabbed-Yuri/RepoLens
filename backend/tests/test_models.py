@@ -33,10 +33,16 @@ class ModelRoundTripTests(unittest.TestCase):
             config_files=["package.json"],
             documentation_files=["README.md"],
             feature_signals=["has-readme"],
+            project_type="web-app",
+            project_purpose="Delivers an interactive browser-based user experience.",
+            interview_focus_areas=["state flow", "API integration"],
         )
 
         self.assertEqual(AnalyzeRequest.model_validate(request.model_dump()).repository_url.host, "github.com")
-        self.assertEqual(RepositoryProfile.model_validate(profile.model_dump()).primary_language, "TypeScript")
+        parsed = RepositoryProfile.model_validate(profile.model_dump())
+        self.assertEqual(parsed.primary_language, "TypeScript")
+        self.assertEqual(parsed.project_type, "web-app")
+        self.assertIn("API integration", parsed.interview_focus_areas)
 
 
 if __name__ == "__main__":

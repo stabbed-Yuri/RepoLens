@@ -14,6 +14,7 @@ from backend.models import (
     RepositoryProfile,
     RetrievedChunk,
 )
+from backend.services.provider_router import ModelProvider, ProviderRouter
 from backend.services.retrieval import RepositoryRetrievalService
 from backend.services.scanner import RepositoryScanner
 
@@ -34,20 +35,38 @@ class KnowledgePackBuilder:
         self,
         scanner: RepositoryScanner | None = None,
         retrieval: RepositoryRetrievalService | None = None,
+        provider_router: ProviderRouter | None = None,
     ) -> None:
         self.scanner = scanner or RepositoryScanner()
         self.retrieval = retrieval or RepositoryRetrievalService(storage_path=None)
+        self.provider_router = provider_router or ProviderRouter()
 
-    def build(self, repository_url: str) -> KnowledgePack:
+    def build(self, repository_url: str, model_provider: ModelProvider | None = None) -> KnowledgePack:
         with tempfile.TemporaryDirectory(prefix="repolens-knowledge-pack-") as temp_dir:
             repo_path = Path(temp_dir) / "repo"
             self._clone_repository(repository_url, repo_path)
-            return self.build_from_path(repo_path, repository_url)
+            return self.build_from_path(repo_path, repository_url, model_provider=model_provider)
 
-    def build_from_path(self, repo_path: Path, repository_url: str) -> KnowledgePack:
+    def build_from_path(
+        self,
+        repo_path: Path,
+        repository_url: str,
+        model_provider: ModelProvider | None = None,
+    ) -> KnowledgePack:
+        preferred_provider = self.provider_router.normalize_provider(model_provider)
+        if model_provider is not None:
+            self.retrieval.embedding_provider = _RoutingEmbeddingProvider(
+                router=self.provider_router,
+                preferred_provider=preferred_provider,
+            )
         profile = self.scanner.scan_path(repo_path, repository_url=repository_url)
         chunks = self.retrieval.chunk_repository(repo_path, profile)
         embedded_chunks = self.retrieval.embed_chunks(chunks)
+        embedding_result = (
+            self.retrieval.embedding_provider.last_result
+            if isinstance(self.retrieval.embedding_provider, _RoutingEmbeddingProvider)
+            else None
+        )
         topic_hits = self._build_topic_hits(DEFAULT_TOPICS, k=4)
         key_chunks = self._select_key_chunks(chunks, max_chunks=80)
         dimensions = len(embedded_chunks[0].embedding) if embedded_chunks else 0
@@ -64,6 +83,9 @@ class KnowledgePackBuilder:
                 embedded_chunk_count=len(embedded_chunks),
                 embedding_dimensions=dimensions,
             ),
+            provider_used=embedding_result.provider_used if embedding_result else None,
+            fallback_used=embedding_result.fallback_used if embedding_result else False,
+            fallback_reason=embedding_result.fallback_reason if embedding_result else None,
             generated_at=datetime.now(UTC),
         )
 
@@ -122,7 +144,9 @@ class KnowledgePackBuilder:
             return []
 
         # Prefer diverse, higher-signal files first so UI previews are useful.
-        sorted_chunks = sorted(chunks, key=self._chunk_priority)
+        substantive_chunks = [chunk for chunk in chunks if not self._is_low_value_dotfile(chunk.source_path)]
+        candidate_chunks = substantive_chunks or chunks
+        sorted_chunks = sorted(candidate_chunks, key=self._chunk_priority)
         selected: list[RepositoryChunk] = []
         per_file_counts: dict[str, int] = {}
 
@@ -158,10 +182,12 @@ class KnowledgePackBuilder:
         type_priority = {"source": 0, "manifest": 1, "config": 2, "documentation": 3}
         priority = type_priority.get(chunk.chunk_type, 4)
 
-        is_hidden_meta = file_name in {".gitignore", ".gitattributes", ".editorconfig"}
-        hidden_penalty = 1 if is_hidden_meta else 0
+        hidden_penalty = 1 if self._is_low_value_dotfile(file_name) else 0
 
         return (hidden_penalty, priority, lower_path, chunk.start_line)
+
+    def _is_low_value_dotfile(self, path: str) -> bool:
+        return Path(path.lower()).name in {".gitignore", ".gitattributes", ".editorconfig"}
 
     def _to_pack_chunk(self, chunk: RepositoryChunk) -> KnowledgePackChunk:
         return KnowledgePackChunk(
@@ -172,3 +198,18 @@ class KnowledgePackBuilder:
             end_line=chunk.end_line,
             text_excerpt=chunk.text[:600],
         )
+
+
+class _RoutingEmbeddingProvider:
+    def __init__(self, *, router: ProviderRouter, preferred_provider: ModelProvider) -> None:
+        self.router = router
+        self.preferred_provider = preferred_provider
+        self.last_result = None
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        result = self.router.embed_texts(
+            preferred_provider=self.preferred_provider,
+            texts=texts,
+        )
+        self.last_result = result
+        return result.embeddings or []

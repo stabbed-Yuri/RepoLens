@@ -1,88 +1,82 @@
 # RepoLens
 
-RepoLens is an AI-powered interview coach for GitHub repositories. A user submits a repository URL, RepoLens builds a compact `RepositoryProfile` + `KnowledgePack`, then runs dynamic interview Q&A one turn at a time.
+**Intelligent repository-specific interview practice and codebase exploration.**
 
-Current intelligence defaults:
-- Interview generation/evaluation: OpenAI (`gpt-4.1-mini`)
-- Embeddings/retrieval: OpenAI (`text-embedding-3-small`) with deterministic hash fallback
+🚀 [Live Deployment](#) *(Deployment pending)*
 
-## Runtime API
+## About RepoLens
 
-- `GET /health`
-- `POST /analyze`
-- `POST /analyze/knowledge-pack`
-- `POST /interview/start`
-- `POST /interview/answer`
-- `POST /interview/stop`
+RepoLens is an AI-powered tool designed to help fresh graduates prepare for technical interviews based on their own projects. Instead of relying on generic, static question banks, RepoLens ingests a GitHub repository, analyzes its structure and dependencies, and conducts a dynamic, context-aware interview tailored specifically to the codebase provided. 
 
-These routes are active in [backend/app.py](/C:/Users/GIGABYTE/Documents/RepoLens/backend/app.py) and consumed by the React frontend.
+This allows graduates to practice defending their technical decisions, explaining their architecture, and demonstrating deep understanding of their own code—skills that are critical in real-world engineering interviews.
 
-## Current Capabilities
+---
 
-- Language-agnostic repository scan + profile construction
-- Knowledge-pack builder with chunking, embeddings, and topic hits
-- Chat-style dynamic interview flow with standardized `next_action` semantics:
-  - `continue_interview`
-  - `study_plan_ready`
-  - `retry_later`
-- Rate-limit/provider-failure fallback messaging for demo reliability
+## Hackathon Categories Addressed
 
-## Local Run
+RepoLens was built for the **Hack Days CUET** hackathon and is competing in the following tracks:
 
-Backend:
-```bash
-python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
-```
+*   **Best Use of Gemini API**: RepoLens leverages the Gemini API as its core engine for generating intelligent, repository-specific questions, evaluating candidate answers in real-time, and generating dynamic follow-up questions based on the candidate's responses.
+*   **Best usage of Codex**: The entire development lifecycle of RepoLens was guided by strictly enforced AI agent rules (`AGENTS.md`) and capability files (`SKILL.md`), ensuring high-quality architectural decisions, token-efficient context packing, and robust error handling.
 
-Frontend:
-```bash
-cd frontend
-npm install
-npm run dev -- --host 0.0.0.0 --port 5173
-```
+*(Note regarding the **Best App Deployed on Google Cloud** track: While a full deployment utilizing Google Cloud Run, Firebase Hosting, and Firestore was planned and architected, it could not be fully deployed to production during the hackathon due to inaccessible payment method restrictions for Google Cloud billing.)*
 
-## Environment
+---
 
-Use `backend/.env`:
+## How It Works
 
-```env
-OPENAI_API_KEY=...
-REPOLENS_OPENAI_MODEL=gpt-4.1-mini
-REPOLENS_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-REPOLENS_EMBEDDING_PROVIDER=openai
-```
+1.  **Repository Ingestion**: The user provides a public GitHub URL.
+2.  **Context Packing**: The backend clones the repository, scans it using heuristics to identify key entry points, manifests, and documentation, and builds a token-efficient `KnowledgePack`.
+3.  **Intelligent Questioning**: The `KnowledgePack` is passed to the **Gemini 3.1 Flash Lite** model, which formulates a targeted, medium-to-hard difficulty interview question focusing on the architecture, data flow, or specific implementation details of the repository.
+4.  **Dynamic Evaluation**: The user submits their answer. Gemini evaluates the response, assigns a score, provides constructive feedback, and determines the next logical follow-up question.
+5.  **Graceful Fallback**: The system features a robust `ProviderRouter` that automatically falls back to secondary models or offline deterministic logic if rate limits or quota issues are encountered, ensuring a seamless user experience.
 
-Optional embedding providers:
-- `REPOLENS_EMBEDDING_PROVIDER=hash`
-- `REPOLENS_EMBEDDING_PROVIDER=gemini` (requires Gemini key/model config)
+---
 
-## Deployed URLs
+## Technical Architecture
 
-Set these once you deploy:
+### Technologies Used
 
-- Frontend (Vercel): `https://<your-frontend>.vercel.app`
-- Backend (Render): `https://<your-backend>.onrender.com`
-- Health check: `https://<your-backend>.onrender.com/health`
+*   **Backend**: Python, FastAPI
+*   **Frontend**: React, Vite, TypeScript
+*   **AI/LLMs**: Google Gemini API (`gemini-3.1-flash-lite`) via direct REST integration.
+*   **Codebase Parsing**: Custom Python AST/Regex heuristics combined with Git for shallow cloning and chunking.
 
-Deployment wiring:
+### Gemini API Integration Details
 
-- In Vercel env vars: `VITE_API_BASE_URL=https://<your-backend>.onrender.com`
-- In Render env vars: `REPOLENS_CORS_ORIGINS=https://<your-frontend>.vercel.app,http://localhost:5173`
+The Gemini API is deeply integrated into the core workflow:
+*   **Direct REST Integration**: The backend `GeminiService` communicates directly with `generativelanguage.googleapis.com`.
+*   **Context-Aware Prompts**: We construct highly specific system prompts that instruct Gemini to act as a senior engineering interviewer. We feed it the `KnowledgePack` (containing repository stats, language breakdown, and key code chunks) so it has full context of the project before asking a question.
+*   **Structured JSON Output**: We utilize JSON schema constraints in the prompt to ensure Gemini returns easily parsable evaluation data (score, feedback, next action).
 
-## Testing
+---
 
-Backend:
-```bash
-python -m unittest discover backend/tests
-```
+## Team
 
-Frontend:
-```bash
-cd frontend
-npm run test
-```
+*   **Aadil Mubasshar** - Full Stack Developer & AI Engineer
 
-## Notes
+---
 
-- Prompt assets are maintained in [backend/prompts/](/C:/Users/GIGABYTE/Documents/RepoLens/backend/prompts/) and [docs/prompts.md](/C:/Users/GIGABYTE/Documents/RepoLens/docs/prompts.md).
-- The legacy scaffold under `backend/app/*` is non-runtime reference structure for now.
+## Getting Started (Local Development)
+
+### Prerequisites
+- Python 3.10+
+- Node.js 18+
+- Git
+
+### Backend Setup
+1. Navigate to the `backend` directory.
+2. Install dependencies: `pip install -r requirements.txt`
+3. Configure environment variables in `backend/.env`:
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key
+   REPOLENS_GEMINI_MODEL=gemini-3.1-flash-lite
+   REPOLENS_EMBEDDING_PROVIDER=gemini
+   ```
+4. Run the server: `python -m uvicorn backend.app:app --reload`
+
+### Frontend Setup
+1. Navigate to the `frontend` directory.
+2. Install dependencies: `npm install`
+3. Run the development server: `npm run dev`
+4. Open `http://localhost:5173` in your browser.

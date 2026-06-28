@@ -24,7 +24,7 @@ class Settings(BaseModel):
     openai_api_key: str | None = None
     openai_timeout_seconds: int = 30
     openai_embedding_model: str = "text-embedding-3-small"
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.1-flash-lite"
     gemini_api_key: str | None = None
     gemini_embedding_model: str = "text-embedding-004"
     embedding_provider: str = "openai"
@@ -64,7 +64,7 @@ class Settings(BaseModel):
                 "REPOLENS_OPENAI_EMBEDDING_MODEL",
                 "text-embedding-3-small",
             ),
-            gemini_model=os.getenv("REPOLENS_GEMINI_MODEL", "gemini-2.5-flash"),
+            gemini_model=os.getenv("REPOLENS_GEMINI_MODEL", "gemini-3.1-flash-lite"),
             gemini_api_key=os.getenv("GEMINI_API_KEY") or os.getenv("REPOLENS_GEMINI_API_KEY"),
             gemini_embedding_model=os.getenv(
                 "REPOLENS_GEMINI_EMBEDDING_MODEL",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from backend.models import KnowledgePack, RepositoryProfile
 from backend.services.knowledge_pack import KnowledgePackBuilder
+from backend.services.provider_router import ModelProvider
 from backend.services.scanner import RepositoryScanner
 
 
@@ -21,5 +22,9 @@ class RepositoryAnalyzer:
     def analyze(self, repository_url: str) -> RepositoryProfile:
         return self.scanner.scan(repository_url)
 
-    def build_knowledge_pack(self, repository_url: str) -> KnowledgePack:
-        return self.knowledge_pack_builder.build(repository_url)
+    def build_knowledge_pack(
+        self,
+        repository_url: str,
+        model_provider: ModelProvider | None = None,
+    ) -> KnowledgePack:
+        return self.knowledge_pack_builder.build(repository_url, model_provider=model_provider)

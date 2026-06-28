@@ -12,6 +12,7 @@ def utc_now() -> datetime:
 
 class AnalyzeRequest(BaseModel):
     repository_url: HttpUrl
+    model_provider: Literal["openai", "gemini"] = "openai"
 
 
 class DependencyManifest(BaseModel):
@@ -97,6 +98,9 @@ class KnowledgePack(BaseModel):
     key_chunks: list[KnowledgePackChunk] = Field(default_factory=list)
     topic_hits: dict[str, list[KnowledgePackTopicHit]] = Field(default_factory=dict)
     stats: KnowledgePackStats = Field(default_factory=KnowledgePackStats)
+    provider_used: Literal["openai", "gemini", "hash"] | None = None
+    fallback_used: bool = False
+    fallback_reason: str | None = None
     generated_at: datetime = Field(default_factory=utc_now)
 
 
@@ -117,6 +121,9 @@ class RepositoryProfile(BaseModel):
     feature_signals: list[str] = Field(default_factory=list)
     statistics: RepositoryStatistics = Field(default_factory=RepositoryStatistics)
     classification_tool: str = "linguist-compatible"
+    project_type: str | None = None
+    project_purpose: str | None = None
+    interview_focus_areas: list[str] = Field(default_factory=list)
     repo_type_summary: str | None = None
     scanned_at: datetime = Field(default_factory=utc_now)
 
@@ -135,6 +142,7 @@ AnalyzeResponse = RepositoryProfile
 class InterviewStartRequest(BaseModel):
     repository_url: HttpUrl
     user_id: str | None = None
+    model_provider: Literal["openai", "gemini"] = "openai"
 
 
 class InterviewQuestion(BaseModel):
@@ -147,6 +155,9 @@ class InterviewStartResponse(BaseModel):
     session_id: str
     question: InterviewQuestion
     status: str = "in_progress"
+    provider_used: Literal["openai", "gemini"] | None = None
+    fallback_used: bool = False
+    fallback_reason: str | None = None
 
 
 class InterviewAnswerRequest(BaseModel):
@@ -160,6 +171,9 @@ class InterviewAnswerResponse(BaseModel):
     score_out_of_10: int | None = Field(default=None, ge=0, le=10)
     follow_up_question: str | None = None
     next_action: Literal["continue_interview", "study_plan_ready", "retry_later"] = "retry_later"
+    provider_used: Literal["openai", "gemini"] | None = None
+    fallback_used: bool = False
+    fallback_reason: str | None = None
 
 
 class InterviewStopRequest(BaseModel):
@@ -171,6 +185,9 @@ class InterviewStopResponse(BaseModel):
     summary: str
     score_out_of_10: int | None = Field(default=None, ge=0, le=10)
     next_steps: list[str] = Field(default_factory=list)
+    provider_used: Literal["openai", "gemini"] | None = None
+    fallback_used: bool = False
+    fallback_reason: str | None = None
 
 
 class HealthResponse(BaseModel):

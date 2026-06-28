@@ -21,7 +21,7 @@ CONFIG_FILENAMES = {
     "build.gradle",
     "build.gradle.kts",
     "go.mod",
-    "Cargo.toml",
+    "cargo.toml",
     "composer.json",
     "pubspec.yaml",
     "tsconfig.json",
@@ -74,6 +74,19 @@ DOCUMENTATION_PATTERNS = (
     re.compile(r"\.(md|rst|txt|adoc|asciidoc|mdx)$", re.IGNORECASE),
 )
 
+PROJECT_TYPES = {
+    "reporting",
+    "web-app",
+    "api-service",
+    "cli-tool",
+    "library",
+    "mobile-app",
+    "data-project",
+    "infra-config",
+    "desktop-app",
+    "unknown",
+}
+
 
 @dataclass(slots=True)
 class RepositoryProfileInputs:
@@ -100,6 +113,7 @@ class RepositoryProfileBuilder:
             readme_file,
         )
         important_files = self._important_files(
+            all_files,
             readme_file,
             config_files,
             test_files,
@@ -124,6 +138,26 @@ class RepositoryProfileBuilder:
             inputs.readme_text,
             inputs.folder_tree,
         )
+        project_type = self._project_type(
+            all_files=all_files,
+            frameworks=frameworks,
+            dependency_manifests=inputs.dependency_manifests,
+            entry_points=entry_points,
+            config_files=config_files,
+            readme_text=inputs.readme_text,
+        )
+        project_purpose = self._project_purpose(
+            project_type=project_type,
+            frameworks=frameworks,
+            files=all_files,
+            readme_text=inputs.readme_text,
+        )
+        interview_focus_areas = self._interview_focus_areas(
+            project_type=project_type,
+            test_files=test_files,
+            config_files=config_files,
+            dependency_manifests=inputs.dependency_manifests,
+        )
 
         return RepositoryProfile(
             repo_name=self._repo_name(inputs.repo_path, inputs.repo_url),
@@ -140,7 +174,12 @@ class RepositoryProfileBuilder:
             config_files=config_files,
             documentation_files=documentation_files,
             feature_signals=feature_signals,
+            project_type=project_type,
+            project_purpose=project_purpose,
+            interview_focus_areas=interview_focus_areas,
             repo_type_summary=self._repo_type_summary(
+                project_type=project_type,
+                project_purpose=project_purpose,
                 frameworks=frameworks,
                 classified_files=inputs.classified_files,
                 dependency_manifests=inputs.dependency_manifests,
@@ -221,6 +260,7 @@ class RepositoryProfileBuilder:
 
     def _important_files(
         self,
+        all_files: list[str],
         readme_file: str | None,
         config_files: list[str],
         test_files: list[str],
@@ -231,13 +271,13 @@ class RepositoryProfileBuilder:
         important: list[str] = []
         if readme_file:
             important.append(readme_file)
+        important.extend(entry_points)
         important.extend(config_files)
         important.extend(test_files)
-        important.extend(entry_points)
-        important.extend(classified_files.binary_files[:10])
-        important.extend(classified_files.generated_files[:10])
-        important.extend(classified_files.vendored_files[:10])
+        important.extend(self._artifact_files(all_files, suffixes={".rdl", ".rds", ".rptproj", ".sln", ".csproj"}))
         important.extend(documentation_files[:10])
+        excluded = set(classified_files.binary_files) | set(classified_files.generated_files) | set(classified_files.vendored_files)
+        important = [file_path for file_path in important if file_path not in excluded and not self._is_low_value_dotfile(file_path)]
         return self._dedupe_limit(important, 40)
 
     def _frameworks(
@@ -257,6 +297,8 @@ class RepositoryProfileBuilder:
                     frameworks.add(framework)
         lower_files = [item.lower() for item in all_files]
         if any(item.endswith(".sln") for item in lower_files):
+            frameworks.add("dotnet")
+        if any(item.endswith(".csproj") for item in lower_files):
             frameworks.add("dotnet")
         if any(item.endswith(".rdl") or item.endswith(".rptproj") for item in lower_files):
             frameworks.add("ssrs")
@@ -302,11 +344,123 @@ class RepositoryProfileBuilder:
             signals.add("many-high-signal-files")
         if len(dependency_manifests) > 1:
             signals.add("multiple-manifests")
+        project_type_hint = self._project_type(
+            all_files=folder_tree,
+            frameworks=frameworks,
+            dependency_manifests=dependency_manifests,
+            entry_points=entry_points,
+            config_files=config_files,
+            readme_text=readme_text,
+        )
+        signals.add(f"project-type:{project_type_hint}")
         signals.update(f"framework:{framework}" for framework in frameworks[:10])
         for manifest in dependency_manifests:
             if manifest.package_manager:
                 signals.add(f"package-manager:{manifest.package_manager}")
         return sorted(signals)
+
+    def _project_type(
+        self,
+        *,
+        all_files: list[str],
+        frameworks: list[str],
+        dependency_manifests: list[DependencyManifest],
+        entry_points: list[str],
+        config_files: list[str],
+        readme_text: str | None,
+    ) -> str:
+        lower_files = [item.lower() for item in all_files]
+        lower_frameworks = {framework.lower() for framework in frameworks}
+        manifest_names = {Path(manifest.path).name.lower() for manifest in dependency_manifests}
+        readme = (readme_text or "").lower()
+
+        if any(file.endswith((".rdl", ".rds", ".rptproj")) for file in lower_files) or "ssrs" in lower_frameworks:
+            return "reporting"
+        if any(file.endswith(("dockerfile", "docker-compose.yml", "docker-compose.yaml", ".tf", ".tfvars")) for file in lower_files):
+            return "infra-config"
+        if {"react", "next", "vue", "svelte", "vite"} & lower_frameworks or {"package.json"} & manifest_names and any(
+            file.endswith((".tsx", ".jsx", "index.html")) for file in lower_files
+        ):
+            return "web-app"
+        if {"fastapi", "django", "flask", "spring", "spring boot"} & lower_frameworks or any(
+            term in readme for term in ("api", "rest", "graphql", "endpoint")
+        ):
+            return "api-service"
+        if {"flutter"} & lower_frameworks or "pubspec.yaml" in manifest_names or any(file.endswith((".swift", ".kt")) for file in lower_files):
+            return "mobile-app"
+        if any(file.endswith((".ipynb", ".parquet")) for file in lower_files) or any(term in readme for term in ("notebook", "dataset", "machine learning", "data pipeline")):
+            return "data-project"
+        if any(Path(entry).stem.lower() in {"cli", "command", "program"} for entry in entry_points) or any(term in readme for term in ("command line", "cli tool")):
+            return "cli-tool"
+        if any(file.endswith((".sln", ".csproj", ".cs")) for file in lower_files) and any(term in readme for term in ("desktop", "winforms", "wpf")):
+            return "desktop-app"
+        if any(term in readme for term in ("library", "sdk", "package")):
+            return "library"
+        return "unknown"
+
+    def _project_purpose(
+        self,
+        *,
+        project_type: str,
+        frameworks: list[str],
+        files: list[str],
+        readme_text: str | None,
+    ) -> str:
+        lower_files = [item.lower() for item in files]
+        if project_type == "reporting":
+            if any(file.endswith(".rds") for file in lower_files):
+                return "Defines reports and shared data source configuration."
+            return "Defines report artifacts and reporting layout."
+        if project_type == "web-app":
+            return "Delivers an interactive browser-based user experience."
+        if project_type == "api-service":
+            return "Exposes backend behavior through service endpoints."
+        if project_type == "infra-config":
+            return "Describes deployment, runtime, or infrastructure configuration."
+        if project_type == "mobile-app":
+            return "Delivers an application experience for mobile devices."
+        if project_type == "data-project":
+            return "Processes, explores, or models data assets."
+        if project_type == "cli-tool":
+            return "Provides command-line workflows for users or automation."
+        if project_type == "library":
+            return "Provides reusable functionality for other codebases."
+        if readme_text:
+            first_line = next((line.strip("# ").strip() for line in readme_text.splitlines() if line.strip()), "")
+            if first_line:
+                return first_line[:160]
+        if frameworks:
+            return f"Uses {', '.join(frameworks[:3])} to implement project behavior."
+        return "Project purpose could not be inferred from high-signal files."
+
+    def _interview_focus_areas(
+        self,
+        *,
+        project_type: str,
+        test_files: list[str],
+        config_files: list[str],
+        dependency_manifests: list[DependencyManifest],
+    ) -> list[str]:
+        by_type = {
+            "reporting": ["data sources", "report definitions", "dataset queries", "schema change handling", "deployment"],
+            "web-app": ["state flow", "component boundaries", "API integration", "accessibility", "build and deployment"],
+            "api-service": ["route design", "validation", "persistence", "error handling", "deployment"],
+            "cli-tool": ["command design", "input validation", "error handling", "automation", "packaging"],
+            "library": ["public API design", "compatibility", "versioning", "error handling", "tests"],
+            "mobile-app": ["navigation", "state management", "device integration", "offline behavior", "release process"],
+            "data-project": ["data flow", "data quality", "modeling choices", "reproducibility", "validation"],
+            "infra-config": ["environments", "secrets", "reproducibility", "rollout safety", "failure modes"],
+            "desktop-app": ["UI architecture", "state handling", "platform integration", "packaging", "maintainability"],
+            "unknown": ["architecture", "core artifacts", "trade-offs", "testing", "maintainability"],
+        }
+        focus = list(by_type.get(project_type, by_type["unknown"]))
+        if not test_files and "testing gaps" not in focus:
+            focus.append("testing gaps")
+        if config_files and "configuration risks" not in focus:
+            focus.append("configuration risks")
+        if dependency_manifests and "dependency choices" not in focus:
+            focus.append("dependency choices")
+        return self._dedupe_limit(focus, 8)
 
     def _compact_language_breakdown(self, breakdown: dict[str, float]) -> dict[str, float]:
         if not breakdown:
@@ -329,10 +483,18 @@ class RepositoryProfileBuilder:
     def _repo_type_summary(
         self,
         *,
+        project_type: str,
+        project_purpose: str,
         frameworks: list[str],
         classified_files: ClassifiedFiles,
         dependency_manifests: list[DependencyManifest],
     ) -> str | None:
+        if project_type == "reporting":
+            return "SSRS reporting project with report definitions and data source configuration"
+        if project_type != "unknown":
+            tools = ", ".join(frameworks[:3])
+            suffix = f" using {tools}" if tools else ""
+            return f"{project_type.replace('-', ' ').title()} repository{suffix}: {project_purpose}"
         primary_language = classified_files.primary_language or "unknown language"
         if frameworks:
             top_frameworks = ", ".join(frameworks[:3])
@@ -384,6 +546,12 @@ class RepositoryProfileBuilder:
             if len(result) >= limit:
                 break
         return result
+
+    def _artifact_files(self, files: list[str], suffixes: set[str]) -> list[str]:
+        return sorted({relative for relative in files if Path(relative).suffix.lower() in suffixes})
+
+    def _is_low_value_dotfile(self, relative: str) -> bool:
+        return Path(relative).name.lower() in {".gitignore", ".gitattributes", ".editorconfig"}
 
     def _is_junk_path(self, relative: str) -> bool:
         lower = relative.lower()

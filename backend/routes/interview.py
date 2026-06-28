@@ -16,7 +16,11 @@ interview_service = InterviewService()
 
 @router.post("/start", response_model=InterviewStartResponse)
 def start_interview(request: InterviewStartRequest) -> InterviewStartResponse:
-    return interview_service.start(str(request.repository_url), request.user_id)
+    return interview_service.start(
+        str(request.repository_url),
+        request.user_id,
+        model_provider=request.model_provider,
+    )
 
 
 @router.post("/answer", response_model=InterviewAnswerResponse)

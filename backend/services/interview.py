@@ -25,6 +25,7 @@ from backend.models import (
 from backend.config import get_settings
 from backend.services.analyzer import RepositoryAnalyzer
 from backend.services.openai import OpenAIError, OpenAIService
+from backend.services.provider_router import ModelProvider, ProviderRouter, TextProvider, TextResult
 
 
 @dataclass(slots=True)
@@ -33,6 +34,7 @@ class InterviewSessionState:
     repository_url: str
     knowledge_pack: KnowledgePack
     last_question: str
+    preferred_provider: ModelProvider = "openai"
     turns: int = 0
     history: list[dict[str, str]] = field(default_factory=list)
 
@@ -44,26 +46,40 @@ class InterviewService:
         self,
         analyzer: RepositoryAnalyzer | None = None,
         llm: OpenAIService | None = None,
+        provider_router: ProviderRouter | None = None,
     ) -> None:
         self.analyzer = analyzer or RepositoryAnalyzer()
-        self.llm = llm or OpenAIService()
+        self.provider_router = provider_router or (
+            ProviderRouter(openai=llm, gemini=_DisabledProvider()) if llm is not None else ProviderRouter()
+        )
         self.settings = get_settings()
         self.sessions: dict[str, InterviewSessionState] = {}
         self.logger = logging.getLogger(__name__)
+        self._last_provider_result: TextResult | None = None
 
-    def start(self, repository_url: str, user_id: str | None = None) -> InterviewStartResponse:
+    def start(
+        self,
+        repository_url: str,
+        user_id: str | None = None,
+        model_provider: ModelProvider | None = None,
+    ) -> InterviewStartResponse:
         _ = user_id
+        preferred_provider = self.provider_router.normalize_provider(model_provider)
         try:
-            knowledge_pack = self.analyzer.build_knowledge_pack(repository_url)
+            knowledge_pack = self.analyzer.build_knowledge_pack(
+                repository_url,
+                model_provider=preferred_provider,
+            )
         except RuntimeError:
             return self._stub_start()
 
         question_text = ""
-        if self.llm.enabled:
-            try:
-                question_text = self._generate_question(knowledge_pack)
-            except OpenAIError:
-                question_text = ""
+        question_result: TextResult | None = None
+        try:
+            question_text = self._generate_question(knowledge_pack, preferred_provider=preferred_provider)
+            question_result = self._last_provider_result
+        except OpenAIError:
+            question_text = ""
         if not question_text:
             question_text = self._fallback_question(knowledge_pack)
 
@@ -76,6 +92,7 @@ class InterviewService:
             repository_url=repository_url,
             knowledge_pack=knowledge_pack,
             last_question=question_text,
+            preferred_provider=preferred_provider,
             turns=1,
         )
         return InterviewStartResponse(
@@ -85,6 +102,9 @@ class InterviewService:
                 focus_area="repository overview",
                 difficulty="medium",
             ),
+            provider_used=question_result.provider_used if question_result else None,
+            fallback_used=question_result.fallback_used if question_result else False,
+            fallback_reason=question_result.fallback_reason if question_result else None,
         )
 
     def answer(self, session_id: str, answer: str) -> InterviewAnswerResponse:
@@ -96,10 +116,12 @@ class InterviewService:
                 follow_up_question=None,
                 next_action="retry_later",
             )
-        if not self.llm.enabled:
+        if not self._has_any_text_provider():
             return InterviewAnswerResponse(
                 session_id=session_id,
-                evaluation="OpenAI API key is not configured. Add OPENAI_API_KEY in backend/.env and retry.",
+                evaluation=(
+                    "No model provider is configured. Add OPENAI_API_KEY or GEMINI_API_KEY in backend/.env and retry."
+                ),
                 follow_up_question="Can you explain one key module in this repository while API access is restored?",
                 next_action="retry_later",
             )
@@ -108,12 +130,14 @@ class InterviewService:
             pack=session.knowledge_pack,
             question=session.last_question,
             answer=answer,
+            turn_history=session.history,
             recent_questions=[turn.get("question", "") for turn in session.history] + [session.last_question],
             turns_completed=session.turns,
             max_turns=max(1, int(getattr(self.settings, "interview_max_turns", 5))),
         )
         try:
-            parsed = self._generate_answer_evaluation(prompt)
+            parsed = self._generate_answer_evaluation(prompt, preferred_provider=session.preferred_provider)
+            provider_result = self._last_provider_result
         except OpenAIError as exc:
             self.logger.warning("interview_answer_llm_error status=%s detail=%s", exc.status_code, str(exc))
             if exc.status_code == 429:
@@ -145,6 +169,9 @@ class InterviewService:
                 score_out_of_10=None,
                 follow_up_question="Please clarify your answer with one concrete file or module reference.",
                 next_action="retry_later",
+                provider_used=provider_result.provider_used if provider_result else None,
+                fallback_used=provider_result.fallback_used if provider_result else False,
+                fallback_reason=provider_result.fallback_reason if provider_result else None,
             )
         evaluation = self._render_scored_bullets(score, evaluation_bullets)
 
@@ -172,6 +199,9 @@ class InterviewService:
             score_out_of_10=score,
             follow_up_question=follow_up_question or None,
             next_action="continue_interview" if follow_up_question else "study_plan_ready",
+            provider_used=provider_result.provider_used if provider_result else None,
+            fallback_used=provider_result.fallback_used if provider_result else False,
+            fallback_reason=provider_result.fallback_reason if provider_result else None,
         )
 
     def stop(self, session_id: str) -> InterviewStopResponse:
@@ -196,9 +226,11 @@ class InterviewService:
         score: int | None = None
         summary_bullets: list[str] = []
         next_steps: list[str] = []
-        if self.llm.enabled:
+        provider_result: TextResult | None = None
+        if self._has_any_text_provider():
             try:
                 summary_payload = self._generate_summary(session)
+                provider_result = self._last_provider_result
                 score = summary_payload.get("score_out_of_10")
                 summary_bullets = summary_payload.get("summary_bullets", [])
                 next_steps = summary_payload.get("next_steps", [])
@@ -218,55 +250,88 @@ class InterviewService:
             summary=summary_text,
             score_out_of_10=score,
             next_steps=next_steps,
+            provider_used=provider_result.provider_used if provider_result else None,
+            fallback_used=provider_result.fallback_used if provider_result else False,
+            fallback_reason=provider_result.fallback_reason if provider_result else None,
         )
 
-    def _generate_question(self, knowledge_pack: KnowledgePack) -> str:
+    def _generate_question(self, knowledge_pack: KnowledgePack, *, preferred_provider: ModelProvider) -> str:
         prompt = build_start_question_prompt(knowledge_pack)
-        raw = self.llm.generate_text(
+        result = self.provider_router.generate_text(
+            preferred_provider=preferred_provider,
             system_prompt=SYSTEM_PROMPT,
             user_prompt=prompt,
             temperature=0.4,
             max_output_tokens=300,
         )
-        normalized = self._normalize_question(raw)
+        self._last_provider_result = result
+        normalized = self._normalize_question(result.text)
         if self._is_valid_question(normalized):
             return normalized
 
-        retry_raw = self.llm.generate_text(
+        retry_result = self.provider_router.generate_text(
+            preferred_provider=preferred_provider,
             system_prompt=SYSTEM_PROMPT,
             user_prompt=build_start_question_retry_prompt(knowledge_pack),
             temperature=0.2,
             max_output_tokens=220,
         )
-        retry_normalized = self._normalize_question(retry_raw)
+        self._last_provider_result = retry_result
+        retry_normalized = self._normalize_question(retry_result.text)
         if self._is_valid_question(retry_normalized):
             return retry_normalized
         return ""
 
-    def _generate_answer_evaluation(self, prompt: str) -> dict[str, object]:
-        raw = self.llm.generate_text(
+    def _generate_answer_evaluation(self, prompt: str, *, preferred_provider: ModelProvider) -> dict[str, object]:
+        result = self.provider_router.generate_text(
+            preferred_provider=preferred_provider,
             system_prompt=SYSTEM_PROMPT,
             user_prompt=prompt,
             temperature=0.2,
             max_output_tokens=500,
         )
-        parsed = self._parse_answer_payload(raw)
+        self._last_provider_result = result
+        if result.provider_used is None and not result.text:
+            status_code = 429 if "quota" in (result.fallback_reason or "").lower() else None
+            raise OpenAIError(
+                result.fallback_reason or "No model provider is available.",
+                status_code=status_code,
+            )
+        parsed = self._parse_answer_payload(result.text)
         if self._is_valid_evaluation(parsed):
             return parsed
 
-        repair_raw = self.llm.generate_text(
+        repair_result = self.provider_router.generate_text(
+            preferred_provider=result.provider_used if result.provider_used in {"openai", "gemini"} else preferred_provider,
             system_prompt=SYSTEM_PROMPT,
-            user_prompt=build_answer_repair_prompt(raw),
+            user_prompt=build_answer_repair_prompt(result.text),
             temperature=0.0,
             max_output_tokens=280,
         )
-        repaired = self._parse_answer_payload(repair_raw)
+        self._last_provider_result = repair_result
+        repaired = self._parse_answer_payload(repair_result.text)
         if self._is_valid_evaluation(repaired):
             return repaired
+
+        alternate_result = self.provider_router.generate_text(
+            preferred_provider=self.provider_router.alternate_provider(preferred_provider),
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=prompt,
+            temperature=0.2,
+            max_output_tokens=500,
+        )
+        alternate_parsed = self._parse_answer_payload(alternate_result.text)
+        if self._is_valid_evaluation(alternate_parsed):
+            alternate_result.fallback_used = True
+            alternate_result.fallback_reason = "Preferred provider returned malformed evaluation output"
+            self._last_provider_result = alternate_result
+            return alternate_parsed
+        self._last_provider_result = alternate_result
         return {"score_out_of_10": None, "evaluation_bullets": [], "follow_up_question": ""}
 
     def _generate_summary(self, session: InterviewSessionState) -> dict[str, object]:
-        raw = self.llm.generate_text(
+        result = self.provider_router.generate_text(
+            preferred_provider=session.preferred_provider,
             system_prompt=SYSTEM_PROMPT,
             user_prompt=build_interview_summary_prompt(
                 pack=session.knowledge_pack,
@@ -275,18 +340,38 @@ class InterviewService:
             temperature=0.2,
             max_output_tokens=420,
         )
-        parsed = self._parse_summary_payload(raw)
+        self._last_provider_result = result
+        parsed = self._parse_summary_payload(result.text)
         if self._is_valid_summary(parsed):
             return parsed
-        repair_raw = self.llm.generate_text(
+        repair_result = self.provider_router.generate_text(
+            preferred_provider=result.provider_used if result.provider_used in {"openai", "gemini"} else session.preferred_provider,
             system_prompt=SYSTEM_PROMPT,
-            user_prompt=build_summary_repair_prompt(raw),
+            user_prompt=build_summary_repair_prompt(result.text),
             temperature=0.0,
             max_output_tokens=320,
         )
-        repaired = self._parse_summary_payload(repair_raw)
+        self._last_provider_result = repair_result
+        repaired = self._parse_summary_payload(repair_result.text)
         if self._is_valid_summary(repaired):
             return repaired
+        alternate_result = self.provider_router.generate_text(
+            preferred_provider=self.provider_router.alternate_provider(session.preferred_provider),
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=build_interview_summary_prompt(
+                pack=session.knowledge_pack,
+                history=session.history,
+            ),
+            temperature=0.2,
+            max_output_tokens=420,
+        )
+        alternate_parsed = self._parse_summary_payload(alternate_result.text)
+        if self._is_valid_summary(alternate_parsed):
+            alternate_result.fallback_used = True
+            alternate_result.fallback_reason = "Preferred provider returned malformed summary output"
+            self._last_provider_result = alternate_result
+            return alternate_parsed
+        self._last_provider_result = alternate_result
         return {"score_out_of_10": None, "summary_bullets": [], "next_steps": []}
 
     def _parse_answer_payload(self, text: str) -> dict[str, object]:
@@ -417,10 +502,24 @@ class InterviewService:
         }
 
     def _fallback_question(self, knowledge_pack: KnowledgePack) -> str:
+        project_type = knowledge_pack.profile.project_type
         entry_points = knowledge_pack.profile.entry_points
         test_files = knowledge_pack.profile.test_files
         config_files = knowledge_pack.profile.config_files
         important_files = knowledge_pack.profile.important_files
+        if project_type == "reporting":
+            report_file = next((path for path in important_files if path.lower().endswith(".rdl")), None)
+            data_source_file = next((path for path in important_files if path.lower().endswith(".rds")), None)
+            if report_file:
+                if data_source_file:
+                    return f"How do `{report_file}` and `{data_source_file}` work together to define this reporting project?"
+                return f"How does `{report_file}` shape the purpose and structure of this reporting project?"
+        if project_type == "web-app":
+            if entry_points:
+                return f"How does `{entry_points[0]}` fit into the application's overall architecture and user flow?"
+        if project_type == "api-service":
+            if entry_points:
+                return f"How does `{entry_points[0]}` fit into the service's overall request flow and boundaries?"
         if entry_points:
             return f"What is the role of `{entry_points[0]}` in this repository?"
         if test_files:
@@ -442,6 +541,9 @@ class InterviewService:
     def _is_same_question(self, left: str, right: str) -> bool:
         return self._normalize_question(left).rstrip("?").lower() == self._normalize_question(right).rstrip("?").lower()
 
+    def _has_any_text_provider(self) -> bool:
+        return self.provider_router.openai.enabled or self.provider_router.gemini.enabled
+
     def _stub_start(self) -> InterviewStartResponse:
         return InterviewStartResponse(
             session_id="session_stub_001",
@@ -451,3 +553,22 @@ class InterviewService:
                 difficulty="medium",
             ),
         )
+
+
+class _DisabledProvider:
+    enabled = False
+
+    def generate_text(
+        self,
+        *,
+        user_prompt: str,
+        system_prompt: str | None = None,
+        temperature: float = 0.3,
+        max_output_tokens: int = 400,
+    ) -> str:
+        _ = (user_prompt, system_prompt, temperature, max_output_tokens)
+        raise RuntimeError("Provider disabled")
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        _ = texts
+        raise RuntimeError("Provider disabled")

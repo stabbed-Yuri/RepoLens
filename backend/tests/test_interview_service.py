@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import unittest
 
-from backend.models import KnowledgePack, KnowledgePackChunk, RepositoryProfile
+from backend.models import KnowledgePack, KnowledgePackChunk, KnowledgePackTopicHit, RepositoryProfile
+from backend.prompts.interview import build_answer_evaluation_prompt, build_start_question_prompt
 from backend.services.interview import InterviewService, InterviewSessionState
 from backend.services.openai import OpenAIError
+from backend.services.provider_router import ProviderRouter
 
 
 class FakeAnalyzer:
     def __init__(self, pack: KnowledgePack) -> None:
         self.pack = pack
 
-    def build_knowledge_pack(self, repository_url: str) -> KnowledgePack:
-        _ = repository_url
+    def build_knowledge_pack(self, repository_url: str, model_provider: str | None = None) -> KnowledgePack:
+        _ = (repository_url, model_provider)
         return self.pack
 
 
@@ -50,6 +52,27 @@ class RateLimitedGemini:
         raise OpenAIError("rate limited", status_code=429)
 
 
+class SequenceProvider:
+    enabled = True
+
+    def __init__(self, outputs: list[str]) -> None:
+        self.outputs = outputs
+
+    def generate_text(
+        self,
+        *,
+        user_prompt: str,
+        system_prompt: str | None = None,
+        temperature: float = 0.3,
+        max_output_tokens: int = 400,
+    ) -> str:
+        _ = (user_prompt, system_prompt, temperature, max_output_tokens)
+        return self.outputs.pop(0) if self.outputs else ""
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        return [[1.0] for _ in texts]
+
+
 def make_pack() -> KnowledgePack:
     profile = RepositoryProfile(
         repo_name="demo",
@@ -58,6 +81,9 @@ def make_pack() -> KnowledgePack:
         frameworks=["react"],
         entry_points=["src/main.tsx"],
         important_files=["README.md", "src/main.tsx"],
+        project_type="web-app",
+        project_purpose="Delivers an interactive browser-based user experience.",
+        interview_focus_areas=["state flow", "API integration"],
     )
     return KnowledgePack(
         repo_name="demo",
@@ -72,12 +98,95 @@ def make_pack() -> KnowledgePack:
                 start_line=1,
                 end_line=8,
                 text_excerpt="export function App() {}",
-            )
+            ),
+            KnowledgePackChunk(
+                chunk_id="demo:2",
+                source_path="src/api.ts",
+                chunk_type="source",
+                start_line=1,
+                end_line=10,
+                text_excerpt="export async function fetchProfile() {}",
+            ),
+            KnowledgePackChunk(
+                chunk_id="demo:3",
+                source_path="README.md",
+                chunk_type="documentation",
+                start_line=1,
+                end_line=5,
+                text_excerpt="# Demo\n\nInteractive browser app.",
+            ),
         ],
+        topic_hits={
+            "testing": [
+                KnowledgePackTopicHit(
+                    topic="testing",
+                    score=0.8,
+                    chunk=KnowledgePackChunk(
+                        chunk_id="demo:4",
+                        source_path="src/App.test.tsx",
+                        chunk_type="source",
+                        start_line=1,
+                        end_line=12,
+                        text_excerpt="it('renders the app flow')",
+                    ),
+                )
+            ]
+        },
     )
 
 
 class InterviewServiceTests(unittest.TestCase):
+    def test_prompts_include_project_type_history_and_evidence(self) -> None:
+        pack = make_pack()
+        start_prompt = build_start_question_prompt(pack)
+        answer_prompt = build_answer_evaluation_prompt(
+            pack=pack,
+            question="How does src/main.tsx shape rendering?",
+            answer="It bootstraps the app.",
+            turn_history=[
+                {
+                    "question": "What is src/main.tsx responsible for?",
+                    "answer": "It starts rendering.",
+                    "evaluation": "Score: 7/10",
+                }
+            ],
+            recent_questions=["What is src/main.tsx responsible for?"],
+            turns_completed=1,
+            max_turns=5,
+        )
+
+        self.assertIn("Project type: web-app", start_prompt)
+        self.assertIn("first question", start_prompt)
+        self.assertIn("must not focus on one helper function", start_prompt)
+        self.assertIn("components, routes, state management, API boundary, user flow", start_prompt)
+        self.assertIn("Save narrow schema, deployment, and failure-mode questions", start_prompt)
+        self.assertIn("Retrieved evidence from diverse repository chunks", start_prompt)
+        self.assertIn("src/api.ts", start_prompt)
+        self.assertIn("src/App.test.tsx", start_prompt)
+        self.assertIn("Prior turns", answer_prompt)
+        self.assertIn("What is src/main.tsx responsible for?", answer_prompt)
+        self.assertIn("candidate_topics", answer_prompt)
+
+    def test_reporting_fallback_starts_with_broad_artifact_relationship(self) -> None:
+        profile = RepositoryProfile(
+            repo_name="report-demo",
+            repo_url="https://github.com/octocat/report-demo",
+            project_type="reporting",
+            important_files=["Report1.rdl", "DataSource1.rds"],
+        )
+        pack = KnowledgePack(
+            repo_name="report-demo",
+            repo_url="https://github.com/octocat/report-demo",
+            repo_sha="abc123",
+            profile=profile,
+        )
+        service = InterviewService(analyzer=FakeAnalyzer(pack), llm=FakeGemini([]))
+
+        question = service._fallback_question(pack)
+
+        self.assertIn("work together", question)
+        self.assertIn("reporting project", question)
+
     def test_start_retries_when_question_is_truncated(self) -> None:
         service = InterviewService(
             analyzer=FakeAnalyzer(make_pack()),
@@ -142,6 +251,39 @@ class InterviewServiceTests(unittest.TestCase):
 
         self.assertEqual(response.next_action, "retry_later")
         self.assertIn("quota", response.evaluation.lower())
+
+    def test_malformed_evaluation_falls_back_to_alternate_provider(self) -> None:
+        openai = SequenceProvider(["not-json", "still-not-json"])
+        gemini = SequenceProvider(
+            [
+                (
+                    '{"score_out_of_10":8,'
+                    '"evaluation_bullets":["Clear architecture explanation.","References concrete frontend flow."],'
+                    '"follow_up_question":"Which state transition would you test first?"}'
+                )
+            ]
+        )
+        service = InterviewService(
+            analyzer=FakeAnalyzer(make_pack()),
+            provider_router=ProviderRouter(openai=openai, gemini=gemini),
+        )
+        session_id = "session_malformed_fallback"
+        service.sessions[session_id] = InterviewSessionState(
+            session_id=session_id,
+            repository_url="https://github.com/octocat/demo",
+            knowledge_pack=make_pack(),
+            last_question="How does the app fit together?",
+            preferred_provider="openai",
+            turns=1,
+            history=[],
+        )
+
+        response = service.answer(session_id, "Components call actions that update state.")
+
+        self.assertEqual(response.provider_used, "gemini")
+        self.assertTrue(response.fallback_used)
+        self.assertIn("malformed", response.fallback_reason or "")
+        self.assertIn("Score: 8/10", response.evaluation)
 
     def test_answer_returns_study_plan_ready_when_follow_up_missing(self) -> None:
         service = InterviewService(
