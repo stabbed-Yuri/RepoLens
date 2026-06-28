@@ -181,18 +181,7 @@ describe("App", () => {
     expect(screen.getByText(/Limited repository signal found/i)).toBeInTheDocument()
   })
 
-  it("renders provider fallback notice from analyze metadata", async () => {
-    vi.mocked(api.analyzeKnowledgePack).mockResolvedValue(makeFallbackKnowledgePack())
 
-    render(<App />)
-    fireEvent.change(screen.getByPlaceholderText("https://github.com/owner/repository"), {
-      target: { value: "https://github.com/octocat/demo" },
-    })
-    fireEvent.click(screen.getByRole("button", { name: /Analyze Repository/i }))
-
-    await waitFor(() => expect(screen.getByText(/gemini quota or rate limit reached/i)).toBeInTheDocument())
-    expect(screen.getByText(/continued with/i)).toBeInTheDocument()
-  })
 
   it("starts, answers, follows up, and stops an interview", async () => {
     vi.mocked(api.analyzeKnowledgePack).mockResolvedValue(makeKnowledgePack())

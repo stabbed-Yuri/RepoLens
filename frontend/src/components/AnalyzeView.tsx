@@ -310,14 +310,7 @@ export function AnalyzeView({
               </Card>
             )}
 
-            {knowledgePack.fallback_used && (
-              <Card className="border-blue-300/60 bg-blue-50 text-blue-950 dark:border-blue-400/30 dark:bg-blue-950/30 dark:text-blue-100">
-                <CardContent className="pt-4 text-sm">
-                  {knowledgePack.fallback_reason || "Selected provider was unavailable"}, continued with{" "}
-                  {knowledgePack.provider_used === "hash" ? "local hash embeddings" : knowledgePack.provider_used?.toUpperCase()}.
-                </CardContent>
-              </Card>
-            )}
+
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* language breakdown */}
