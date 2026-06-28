@@ -10,15 +10,19 @@ from backend.prompts.interview import (
     SYSTEM_PROMPT,
     build_answer_evaluation_prompt,
     build_answer_repair_prompt,
+    build_interview_summary_prompt,
+    build_summary_repair_prompt,
     build_start_question_prompt,
     build_start_question_retry_prompt,
 )
 from backend.models import (
     InterviewAnswerResponse,
     InterviewQuestion,
+    InterviewStopResponse,
     InterviewStartResponse,
     KnowledgePack,
 )
+from backend.config import get_settings
 from backend.services.analyzer import RepositoryAnalyzer
 from backend.services.openai import OpenAIError, OpenAIService
 
@@ -43,6 +47,7 @@ class InterviewService:
     ) -> None:
         self.analyzer = analyzer or RepositoryAnalyzer()
         self.llm = llm or OpenAIService()
+        self.settings = get_settings()
         self.sessions: dict[str, InterviewSessionState] = {}
         self.logger = logging.getLogger(__name__)
 
@@ -103,6 +108,9 @@ class InterviewService:
             pack=session.knowledge_pack,
             question=session.last_question,
             answer=answer,
+            recent_questions=[turn.get("question", "") for turn in session.history] + [session.last_question],
+            turns_completed=session.turns,
+            max_turns=max(1, int(getattr(self.settings, "interview_max_turns", 5))),
         )
         try:
             parsed = self._generate_answer_evaluation(prompt)
@@ -115,28 +123,37 @@ class InterviewService:
                         "OpenAI quota/rate limit is currently exceeded for this API key. "
                         "Please retry shortly or switch to a billed/updated key."
                     ),
+                    score_out_of_10=None,
                     follow_up_question="Can you summarize one concrete module and its responsibility?",
                     next_action="retry_later",
                 )
             return InterviewAnswerResponse(
                 session_id=session_id,
                 evaluation="Interview evaluation is temporarily unavailable due to provider/API issues.",
+                score_out_of_10=None,
                 follow_up_question="Can you expand on one concrete trade-off in this codebase?",
                 next_action="retry_later",
             )
 
-        evaluation = parsed.get("evaluation", "").strip()
-        follow_up_question = parsed.get("follow_up_question", "").strip()
-        if not evaluation:
+        evaluation_bullets = parsed.get("evaluation_bullets", [])
+        follow_up_question = str(parsed.get("follow_up_question", "")).strip()
+        score = parsed.get("score_out_of_10")
+        if not evaluation_bullets:
             return InterviewAnswerResponse(
                 session_id=session_id,
                 evaluation="The model response was malformed and could not be evaluated safely.",
+                score_out_of_10=None,
                 follow_up_question="Please clarify your answer with one concrete file or module reference.",
                 next_action="retry_later",
             )
+        evaluation = self._render_scored_bullets(score, evaluation_bullets)
 
         if follow_up_question and self._is_same_question(follow_up_question, session.last_question):
             follow_up_question = self._fallback_follow_up(session)
+
+        max_turns = max(1, int(getattr(self.settings, "interview_max_turns", 5)))
+        if session.turns >= max_turns:
+            follow_up_question = ""
 
         session.history.append(
             {
@@ -152,8 +169,55 @@ class InterviewService:
         return InterviewAnswerResponse(
             session_id=session_id,
             evaluation=evaluation,
+            score_out_of_10=score,
             follow_up_question=follow_up_question or None,
             next_action="continue_interview" if follow_up_question else "study_plan_ready",
+        )
+
+    def stop(self, session_id: str) -> InterviewStopResponse:
+        session = self.sessions.get(session_id)
+        if session is None:
+            return InterviewStopResponse(
+                session_id=session_id,
+                summary="No active interview session found.",
+                score_out_of_10=None,
+                next_steps=["Start a new interview session."],
+            )
+
+        if not session.history:
+            self.sessions.pop(session_id, None)
+            return InterviewStopResponse(
+                session_id=session_id,
+                summary="Interview ended before any answer was submitted.",
+                score_out_of_10=None,
+                next_steps=["Start again and answer at least one question."],
+            )
+
+        score: int | None = None
+        summary_bullets: list[str] = []
+        next_steps: list[str] = []
+        if self.llm.enabled:
+            try:
+                summary_payload = self._generate_summary(session)
+                score = summary_payload.get("score_out_of_10")
+                summary_bullets = summary_payload.get("summary_bullets", [])
+                next_steps = summary_payload.get("next_steps", [])
+            except OpenAIError:
+                summary_bullets = []
+
+        if not summary_bullets:
+            fallback = self._fallback_summary(session)
+            score = fallback["score_out_of_10"]
+            summary_bullets = fallback["summary_bullets"]
+            next_steps = fallback["next_steps"]
+
+        self.sessions.pop(session_id, None)
+        summary_text = "\n".join(f"- {item}" for item in summary_bullets)
+        return InterviewStopResponse(
+            session_id=session_id,
+            summary=summary_text,
+            score_out_of_10=score,
+            next_steps=next_steps,
         )
 
     def _generate_question(self, knowledge_pack: KnowledgePack) -> str:
@@ -179,7 +243,7 @@ class InterviewService:
             return retry_normalized
         return ""
 
-    def _generate_answer_evaluation(self, prompt: str) -> dict[str, str]:
+    def _generate_answer_evaluation(self, prompt: str) -> dict[str, object]:
         raw = self.llm.generate_text(
             system_prompt=SYSTEM_PROMPT,
             user_prompt=prompt,
@@ -199,19 +263,74 @@ class InterviewService:
         repaired = self._parse_answer_payload(repair_raw)
         if self._is_valid_evaluation(repaired):
             return repaired
-        return {"evaluation": "", "follow_up_question": ""}
+        return {"score_out_of_10": None, "evaluation_bullets": [], "follow_up_question": ""}
 
-    def _parse_answer_payload(self, text: str) -> dict[str, str]:
+    def _generate_summary(self, session: InterviewSessionState) -> dict[str, object]:
+        raw = self.llm.generate_text(
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=build_interview_summary_prompt(
+                pack=session.knowledge_pack,
+                history=session.history,
+            ),
+            temperature=0.2,
+            max_output_tokens=420,
+        )
+        parsed = self._parse_summary_payload(raw)
+        if self._is_valid_summary(parsed):
+            return parsed
+        repair_raw = self.llm.generate_text(
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=build_summary_repair_prompt(raw),
+            temperature=0.0,
+            max_output_tokens=320,
+        )
+        repaired = self._parse_summary_payload(repair_raw)
+        if self._is_valid_summary(repaired):
+            return repaired
+        return {"score_out_of_10": None, "summary_bullets": [], "next_steps": []}
+
+    def _parse_answer_payload(self, text: str) -> dict[str, object]:
         cleaned = self._strip_markdown_fence(text.strip())
         object_match = re.search(r"\{[\s\S]*\}", cleaned)
         candidate = object_match.group(0) if object_match else cleaned
         try:
             payload = json.loads(candidate)
         except json.JSONDecodeError:
-            return {"evaluation": cleaned, "follow_up_question": ""}
+            return {
+                "score_out_of_10": None,
+                "evaluation_bullets": self._extract_bullets(cleaned),
+                "follow_up_question": "",
+            }
+        score_value = payload.get("score_out_of_10")
+        score = int(score_value) if isinstance(score_value, (int, float, str)) and str(score_value).isdigit() else None
+        bullets_raw = payload.get("evaluation_bullets", [])
+        bullets = [str(item).strip() for item in bullets_raw if str(item).strip()] if isinstance(bullets_raw, list) else []
         return {
-            "evaluation": str(payload.get("evaluation", "")),
+            "score_out_of_10": score,
+            "evaluation_bullets": bullets,
             "follow_up_question": str(payload.get("follow_up_question", "")),
+        }
+
+    def _parse_summary_payload(self, text: str) -> dict[str, object]:
+        cleaned = self._strip_markdown_fence(text.strip())
+        object_match = re.search(r"\{[\s\S]*\}", cleaned)
+        candidate = object_match.group(0) if object_match else cleaned
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            return {"score_out_of_10": None, "summary_bullets": [], "next_steps": []}
+        score_value = payload.get("score_out_of_10")
+        score = int(score_value) if isinstance(score_value, (int, float, str)) and str(score_value).isdigit() else None
+        summary_raw = payload.get("summary_bullets", [])
+        next_steps_raw = payload.get("next_steps", [])
+        return {
+            "score_out_of_10": score,
+            "summary_bullets": [str(item).strip() for item in summary_raw if str(item).strip()]
+            if isinstance(summary_raw, list)
+            else [],
+            "next_steps": [str(item).strip() for item in next_steps_raw if str(item).strip()]
+            if isinstance(next_steps_raw, list)
+            else [],
         }
 
     def _strip_markdown_fence(self, text: str) -> str:
@@ -237,22 +356,80 @@ class InterviewService:
             return False
         return question.endswith("?")
 
-    def _is_valid_evaluation(self, payload: dict[str, str]) -> bool:
-        evaluation = payload.get("evaluation", "").strip()
-        if len(evaluation) < 24:
+    def _is_valid_evaluation(self, payload: dict[str, object]) -> bool:
+        bullets = payload.get("evaluation_bullets", [])
+        score = payload.get("score_out_of_10")
+        if not isinstance(bullets, list) or len(bullets) < 2:
             return False
-        if evaluation.startswith("{") or '"evaluation"' in evaluation:
+        if not isinstance(score, int) or score < 0 or score > 10:
             return False
-        return not evaluation.endswith(":") and not evaluation.endswith('"')
+        for bullet in bullets:
+            text = str(bullet).strip()
+            if len(text) < 4:
+                return False
+            if "{" in text or "}" in text:
+                return False
+        return True
+
+    def _is_valid_summary(self, payload: dict[str, object]) -> bool:
+        summary_bullets = payload.get("summary_bullets", [])
+        next_steps = payload.get("next_steps", [])
+        score = payload.get("score_out_of_10")
+        if not isinstance(summary_bullets, list) or len(summary_bullets) < 2:
+            return False
+        if not isinstance(next_steps, list) or len(next_steps) < 1:
+            return False
+        if score is not None and (not isinstance(score, int) or score < 0 or score > 10):
+            return False
+        return True
+
+    def _extract_bullets(self, text: str) -> list[str]:
+        lines = [line.strip(" -\t") for line in text.splitlines()]
+        bullets = [line for line in lines if line]
+        return bullets[:4]
+
+    def _render_scored_bullets(self, score: int | None, bullets: list[str]) -> str:
+        header = f"Score: {score}/10" if score is not None else "Score: pending"
+        rendered_bullets = "\n".join(f"- {item}" for item in bullets[:4])
+        return f"{header}\n{rendered_bullets}"
+
+    def _fallback_summary(self, session: InterviewSessionState) -> dict[str, object]:
+        recent_turns = session.history[-3:]
+        score = None
+        score_match = re.search(
+            r"score:\s*([0-9]|10)/10",
+            " ".join(turn.get("evaluation", "").lower() for turn in recent_turns),
+        )
+        if score_match:
+            score = int(score_match.group(1))
+        summary_bullets = [
+            f"Completed {len(session.history)} interview turn(s).",
+            "Showed repository understanding with partial detail.",
+            "Can improve by citing concrete files and trade-offs.",
+        ]
+        return {
+            "score_out_of_10": score,
+            "summary_bullets": summary_bullets,
+            "next_steps": [
+                "Reference exact files when explaining design choices.",
+                "Practice concise trade-off analysis for one module.",
+            ],
+        }
 
     def _fallback_question(self, knowledge_pack: KnowledgePack) -> str:
         entry_points = knowledge_pack.profile.entry_points
+        test_files = knowledge_pack.profile.test_files
+        config_files = knowledge_pack.profile.config_files
         important_files = knowledge_pack.profile.important_files
         if entry_points:
             return f"What is the role of `{entry_points[0]}` in this repository?"
+        if test_files:
+            return f"How would you assess test coverage quality in `{test_files[0]}`?"
+        if config_files:
+            return f"What deployment or runtime risk can come from `{config_files[0]}`?"
         if important_files:
             return f"What responsibility does `{important_files[0]}` have in this project?"
-        return "What is the main purpose of this repository?"
+        return "Which module boundary here is most critical to correctness, and why?"
 
     def _fallback_follow_up(self, session: InterviewSessionState) -> str:
         important_files = session.knowledge_pack.profile.important_files

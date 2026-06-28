@@ -4,6 +4,8 @@ import type {
   InterviewAnswerResponse,
   InterviewStartRequest,
   InterviewStartResponse,
+  InterviewStopRequest,
+  InterviewStopResponse,
   KnowledgePack,
   RepositoryProfile,
 } from "../types/contracts";
@@ -63,6 +65,13 @@ export function answerInterview(
   payload: InterviewAnswerRequest,
 ): Promise<InterviewAnswerResponse> {
   return apiRequest<InterviewAnswerResponse>("/interview/answer", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export function stopInterview(payload: InterviewStopRequest): Promise<InterviewStopResponse> {
+  return apiRequest<InterviewStopResponse>("/interview/stop", {
     method: "POST",
     body: payload,
   });

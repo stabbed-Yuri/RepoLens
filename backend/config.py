@@ -34,6 +34,7 @@ class Settings(BaseModel):
     retrieval_chunk_overlap_chars: int = 160
     retrieval_max_file_bytes: int = 250_000
     retrieval_top_k_default: int = 5
+    interview_max_turns: int = 5
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -78,6 +79,7 @@ class Settings(BaseModel):
             ),
             retrieval_max_file_bytes=int(os.getenv("REPOLENS_RETRIEVAL_MAX_FILE_BYTES", "250000")),
             retrieval_top_k_default=int(os.getenv("REPOLENS_RETRIEVAL_TOP_K_DEFAULT", "5")),
+            interview_max_turns=int(os.getenv("REPOLENS_INTERVIEW_MAX_TURNS", "5")),
         )
 
 

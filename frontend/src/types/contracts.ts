@@ -96,6 +96,18 @@ export type InterviewAnswerRequest = {
 export type InterviewAnswerResponse = {
   session_id: string;
   evaluation: string;
+  score_out_of_10: number | null;
   follow_up_question: string | null;
   next_action: "continue_interview" | "study_plan_ready" | "retry_later";
+};
+
+export type InterviewStopRequest = {
+  session_id: string;
+};
+
+export type InterviewStopResponse = {
+  session_id: string;
+  summary: string;
+  score_out_of_10: number | null;
+  next_steps: string[];
 };

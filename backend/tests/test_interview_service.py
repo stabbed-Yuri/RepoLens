@@ -104,10 +104,9 @@ class InterviewServiceTests(unittest.TestCase):
                 [
                     "What is the repository's main purpose?",
                     '{\n  "evaluation": "The',
+                    '{\n  "score_out_of_10": 7,\n  "evaluation_bullets": ["Good high-level summary.", "Tie answer to concrete modules."],\n  "follow_up_question": "Which module is most critical to correctness, and why?"}',
                     (
-                        '{"evaluation":"Good high-level summary. Next, tie it to concrete '
-                        'modules and trade-offs.","follow_up_question":"Which module is most '
-                        'critical to correctness, and why?"}'
+                        '{"score_out_of_10":7,"evaluation_bullets":["Good high-level summary.","Tie it to concrete modules and trade-offs."],"follow_up_question":"Which module is most critical to correctness, and why?"}'
                     ),
                 ]
             ),
@@ -116,6 +115,7 @@ class InterviewServiceTests(unittest.TestCase):
 
         answer_response = service.answer(start_response.session_id, "It builds reporting flows.")
 
+        self.assertIn("Score: 7/10", answer_response.evaluation)
         self.assertIn("Good high-level summary", answer_response.evaluation)
         self.assertEqual(answer_response.next_action, "continue_interview")
         self.assertEqual(
@@ -149,7 +149,7 @@ class InterviewServiceTests(unittest.TestCase):
             llm=FakeGemini(
                 [
                     "What is the repository's main purpose?",
-                    '{"evaluation":"Clear explanation with useful context.","follow_up_question":""}',
+                    '{"score_out_of_10":8,"evaluation_bullets":["Clear explanation.","Useful context included."],"follow_up_question":""}',
                 ]
             ),
         )
@@ -168,7 +168,7 @@ class InterviewServiceTests(unittest.TestCase):
                 [
                     repeated_question,
                     (
-                        '{"evaluation":"Good overview. Add specifics from source files.",'
+                        '{"score_out_of_10":6,"evaluation_bullets":["Good overview.","Add specifics from source files."],'
                         '"follow_up_question":"What is the repository\'s main purpose?"}'
                     ),
                 ]
@@ -181,6 +181,33 @@ class InterviewServiceTests(unittest.TestCase):
         self.assertEqual(answer_response.next_action, "continue_interview")
         self.assertIsNotNone(answer_response.follow_up_question)
         self.assertNotEqual(answer_response.follow_up_question, repeated_question)
+
+    def test_stop_returns_summary_and_next_steps(self) -> None:
+        service = InterviewService(
+            analyzer=FakeAnalyzer(make_pack()),
+            llm=FakeGemini(
+                [
+                    "What is the repository's main purpose?",
+                    (
+                        '{"score_out_of_10":8,"evaluation_bullets":["Clear summary.","Good repo framing."],'
+                        '"follow_up_question":"What trade-off matters most?"}'
+                    ),
+                    (
+                        '{"score_out_of_10":8,"summary_bullets":["Strong overview provided.",'
+                        '"Used repository context.","Needs deeper trade-off detail."],'
+                        '"next_steps":["Cite exact files.","Practice concise design trade-off answers."]}'
+                    ),
+                ]
+            ),
+        )
+        start_response = service.start("https://github.com/stabbed-Yuri/Report-ProjectI036")
+        service.answer(start_response.session_id, "It builds reporting flows.")
+
+        summary_response = service.stop(start_response.session_id)
+
+        self.assertEqual(summary_response.score_out_of_10, 8)
+        self.assertIn("Strong overview provided.", summary_response.summary)
+        self.assertGreaterEqual(len(summary_response.next_steps), 1)
 
 
 if __name__ == "__main__":

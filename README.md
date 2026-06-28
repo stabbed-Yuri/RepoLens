@@ -13,6 +13,7 @@ Current intelligence defaults:
 - `POST /analyze/knowledge-pack`
 - `POST /interview/start`
 - `POST /interview/answer`
+- `POST /interview/stop`
 
 These routes are active in [backend/app.py](/C:/Users/GIGABYTE/Documents/RepoLens/backend/app.py) and consumed by the React frontend.
 
@@ -54,6 +55,19 @@ REPOLENS_EMBEDDING_PROVIDER=openai
 Optional embedding providers:
 - `REPOLENS_EMBEDDING_PROVIDER=hash`
 - `REPOLENS_EMBEDDING_PROVIDER=gemini` (requires Gemini key/model config)
+
+## Deployed URLs
+
+Set these once you deploy:
+
+- Frontend (Vercel): `https://<your-frontend>.vercel.app`
+- Backend (Render): `https://<your-backend>.onrender.com`
+- Health check: `https://<your-backend>.onrender.com/health`
+
+Deployment wiring:
+
+- In Vercel env vars: `VITE_API_BASE_URL=https://<your-backend>.onrender.com`
+- In Render env vars: `REPOLENS_CORS_ORIGINS=https://<your-frontend>.vercel.app,http://localhost:5173`
 
 ## Testing
 

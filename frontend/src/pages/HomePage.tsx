@@ -2,10 +2,10 @@ export function HomePage() {
   return (
     <>
       <section className="hero">
-        <h1>RepoLens</h1>
+        <h2>Prep for repository interviews in minutes</h2>
         <p>
-          AI-powered repository interview coach. Analyze a GitHub repo, build a
-          compact knowledge pack, then run a dynamic Gemini-driven interview.
+          Analyze a public GitHub repository, build a compact knowledge pack,
+          and run a dynamic interview with answer feedback.
         </p>
       </section>
 
@@ -32,6 +32,7 @@ export function HomePage() {
             <li>POST /analyze/knowledge-pack</li>
             <li>POST /interview/start</li>
             <li>POST /interview/answer</li>
+            <li>POST /interview/stop</li>
           </ul>
         </article>
       </section>

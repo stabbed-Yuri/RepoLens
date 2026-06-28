@@ -6,6 +6,7 @@ import { InterviewPage } from "./InterviewPage";
 vi.mock("../api/client", () => ({
   startInterview: vi.fn(),
   answerInterview: vi.fn(),
+  stopInterview: vi.fn(),
 }));
 
 import { answerInterview, startInterview } from "../api/client";
@@ -20,6 +21,7 @@ describe("InterviewPage", () => {
     vi.mocked(answerInterview).mockResolvedValue({
       session_id: "session_1",
       evaluation: "Great answer.",
+      score_out_of_10: 8,
       follow_up_question: "Second question?",
       next_action: "continue_interview",
     });
@@ -52,6 +54,7 @@ describe("InterviewPage", () => {
     vi.mocked(answerInterview).mockResolvedValue({
       session_id: "session_2",
       evaluation: "Complete.",
+      score_out_of_10: 7,
       follow_up_question: null,
       next_action: "study_plan_ready",
     });
@@ -82,6 +85,7 @@ describe("InterviewPage", () => {
     vi.mocked(answerInterview).mockResolvedValue({
       session_id: "session_3",
       evaluation: "Provider busy.",
+      score_out_of_10: null,
       follow_up_question: "Retry soon.",
       next_action: "retry_later",
     });

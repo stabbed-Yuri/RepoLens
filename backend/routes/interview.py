@@ -3,6 +3,8 @@ from fastapi import APIRouter
 from backend.models import (
     InterviewAnswerRequest,
     InterviewAnswerResponse,
+    InterviewStopRequest,
+    InterviewStopResponse,
     InterviewStartRequest,
     InterviewStartResponse,
 )
@@ -21,3 +23,7 @@ def start_interview(request: InterviewStartRequest) -> InterviewStartResponse:
 def answer_interview(request: InterviewAnswerRequest) -> InterviewAnswerResponse:
     return interview_service.answer(request.session_id, request.answer)
 
+
+@router.post("/stop", response_model=InterviewStopResponse)
+def stop_interview(request: InterviewStopRequest) -> InterviewStopResponse:
+    return interview_service.stop(request.session_id)

@@ -157,8 +157,20 @@ class InterviewAnswerRequest(BaseModel):
 class InterviewAnswerResponse(BaseModel):
     session_id: str
     evaluation: str
+    score_out_of_10: int | None = Field(default=None, ge=0, le=10)
     follow_up_question: str | None = None
     next_action: Literal["continue_interview", "study_plan_ready", "retry_later"] = "retry_later"
+
+
+class InterviewStopRequest(BaseModel):
+    session_id: str
+
+
+class InterviewStopResponse(BaseModel):
+    session_id: str
+    summary: str
+    score_out_of_10: int | None = Field(default=None, ge=0, le=10)
+    next_steps: list[str] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):

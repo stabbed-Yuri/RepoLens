@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from backend.app import app
 from backend.models import KnowledgePack, KnowledgePackStats, RepositoryProfile
 from backend.models import InterviewAnswerResponse
+from backend.models import InterviewStopResponse
 
 
 class ApiTests(unittest.TestCase):
@@ -88,6 +89,23 @@ class ApiTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["next_action"], "retry_later")
         self.assertIn("evaluation", body)
+
+    def test_interview_stop_shape(self) -> None:
+        payload = InterviewStopResponse(
+            session_id="session_x",
+            summary="- Strong repo understanding\n- Needs deeper module-level evidence",
+            score_out_of_10=7,
+            next_steps=["Cite exact files", "Explain one trade-off succinctly"],
+        )
+        with patch("backend.routes.interview.interview_service.stop", return_value=payload):
+            response = self.client.post(
+                "/interview/stop",
+                json={"session_id": "session_x"},
+            )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["score_out_of_10"], 7)
+        self.assertGreaterEqual(len(body["next_steps"]), 1)
 
     def test_analyze_knowledge_pack(self) -> None:
         profile = RepositoryProfile(

@@ -43,10 +43,14 @@ export function AnalyzePage({ initialUrl = "", onUseForInterview }: AnalyzePageP
 
   return (
     <section className="panel">
-      <h1>Analyze Repository</h1>
-      <p className="muted">
-        Paste a public GitHub URL to build a compact profile and knowledge pack.
-      </p>
+      <div className="panel-head">
+        <div>
+          <h2>Analyze Repository</h2>
+          <p className="muted">
+            Paste a public GitHub URL to build a compact profile and knowledge pack.
+          </p>
+        </div>
+      </div>
 
       <form className="stack" onSubmit={onAnalyze}>
         <input
@@ -74,7 +78,7 @@ export function AnalyzePage({ initialUrl = "", onUseForInterview }: AnalyzePageP
       {error ? <p className="error">{error}</p> : null}
 
       {profile ? (
-        <article className="result">
+        <article className="result result--spaced">
           <h2>{profile.repo_name}</h2>
           <p className="muted">
             {profile.repo_type_summary ?? "Repository summary unavailable"}
@@ -98,7 +102,7 @@ export function AnalyzePage({ initialUrl = "", onUseForInterview }: AnalyzePageP
       ) : null}
 
       {pack ? (
-        <article className="result">
+        <article className="result result--spaced">
           <h2>Knowledge Pack</h2>
           <p className="muted">
             SHA: {pack.repo_sha} | Chunks: {pack.stats.chunk_count} | Embedded:{" "}
