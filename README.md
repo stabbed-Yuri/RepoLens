@@ -1,6 +1,10 @@
 # RepoLens
+
 <p align="center">
   <img src="./docs/Screenshot 2026-06-28 224855.png" alt="RepoLens analyzing a GitHub repository and running a technical interview" />
+</p>
+<p align="center">
+  <img src="./docs/Screenshot 2026-06-28 224925.png" alt="RepoLens summarizing the interview" />
 </p>
 
 **Intelligent repository-specific interview practice and codebase exploration.**
