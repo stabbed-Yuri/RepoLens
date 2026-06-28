@@ -2,27 +2,40 @@
 
 **Intelligent repository-specific interview practice and codebase exploration.**
 
-🚀 [Live Deployment](#) *(Deployment pending)*
+ [Live Deployment](https://repo-lens-flax.vercel.app/)
 
 ## About RepoLens
 
-RepoLens is an AI-powered tool designed to help fresh graduates prepare for technical interviews based on their own projects. Instead of relying on generic, static question banks, RepoLens ingests a GitHub repository, analyzes its structure and dependencies, and conducts a dynamic, context-aware interview tailored specifically to the codebase provided. 
+RepoLens is an AI-powered tool designed to help fresh graduates prepare for technical interviews based on their own projects. Instead of relying on generic, static question banks, RepoLens ingests a GitHub repository, analyzes its structure and dependencies, and conducts a dynamic, context-aware interview tailored specifically to the provided codebase.
 
-This allows graduates to practice defending their technical decisions, explaining their architecture, and demonstrating deep understanding of their own code—skills that are critical in real-world engineering interviews.
+To achieve this, RepoLens scans the repository, identifies important source files, documentation, and project metadata, and intelligently chunks the content into manageable sections. These chunks are converted into semantic embeddings, enabling efficient retrieval of the most relevant context for every interview question and evaluation. This retrieval-augmented workflow ensures that the AI focuses on the most meaningful parts of the repository rather than relying on a limited snapshot of the codebase.
 
----
-
-## Hackathon Categories Addressed
-
-RepoLens was built for the **Hack Days CUET** hackathon and is competing in the following tracks:
-
-*   **Best Use of Gemini API**: RepoLens leverages the Gemini API as its core engine for generating intelligent, repository-specific questions, evaluating candidate answers in real-time, and generating dynamic follow-up questions based on the candidate's responses.
-*   **Best usage of Codex**: The entire development lifecycle of RepoLens was guided by strictly enforced AI agent rules (`AGENTS.md`) and capability files (`SKILL.md`), ensuring high-quality architectural decisions, token-efficient context packing, and robust error handling.
-
-*(Note regarding the **Best App Deployed on Google Cloud** track: While a full deployment utilizing Google Cloud Run, Firebase Hosting, and Firestore was planned and architected, it could not be fully deployed to production during the hackathon due to inaccessible payment method restrictions for Google Cloud billing.)*
+This allows graduates to practice defending their technical decisions, explaining their architecture, discussing implementation details, and demonstrating a deep understanding of their own code—skills that are critical in real-world software engineering interviews.
 
 ---
 
+## Deployment Status
+
+### Current Status
+
+| Component | Platform | Status |
+|-----------|----------|--------|
+| Frontend | Vercel | ✅ Live |
+| Backend | Render | ✅ Live |
+
+**Live Frontend:** https://repo-lens-flax.vercel.app/
+
+### Google Cloud Deployment
+
+RepoLens was originally architected to be deployed on **Google Cloud Run** (backend), **Firebase Hosting** (frontend), and **Firestore** for persistent storage.
+
+Due to the limited duration of the hackathon and the requirement to enable Google Cloud billing before using Cloud Run, the planned production deployment on Google Cloud could not be completed.
+
+> **Note:** Google Cloud requires a valid credit/debit card to activate billing, even when operating within the free tier. Since such a payment method was not available during the hackathon, billing could not be enabled, preventing deployment to Google Cloud.
+
+As an alternative deployment strategy, the frontend has been successfully deployed on **Vercel**, while the backend is deployed on **Render**
+
+---
 ## How It Works
 
 1.  **Repository Ingestion**: The user provides a public GitHub URL.
@@ -33,14 +46,14 @@ RepoLens was built for the **Hack Days CUET** hackathon and is competing in the 
 
 ---
 
-## Technical Architecture
-
 ### Technologies Used
 
-*   **Backend**: Python, FastAPI
-*   **Frontend**: React, Vite, TypeScript
-*   **AI/LLMs**: Google Gemini API (`gemini-3.1-flash-lite`) via direct REST integration.
-*   **Codebase Parsing**: Custom Python AST/Regex heuristics combined with Git for shallow cloning and chunking.
+* **Backend**: Python, FastAPI
+* **Frontend**: React, Vite, TypeScript
+* **AI/LLMs**: Google Gemini API (`gemini-3.1-flash-lite`), OpenAI API (`gpt-4.1-mini`)
+* **Embeddings**: Gemini, OpenAI
+* **Codebase Analysis**: Git, AST, Regex, Chunking
+* **Deployment**: Vercel, Render
 
 ### Gemini API Integration Details
 
@@ -51,11 +64,6 @@ The Gemini API is deeply integrated into the core workflow:
 
 ---
 
-## Team
-
-*   **Aadil Mubasshar** - Full Stack Developer & AI Engineer
-
----
 
 ## Getting Started (Local Development)
 
@@ -67,11 +75,25 @@ The Gemini API is deeply integrated into the core workflow:
 ### Backend Setup
 1. Navigate to the `backend` directory.
 2. Install dependencies: `pip install -r requirements.txt`
-3. Configure environment variables in `backend/.env`:
+3. Create a `.env` file inside `backend/`:
+
    ```env
+   # Required
    GEMINI_API_KEY=your_gemini_api_key
-   REPOLENS_GEMINI_MODEL=gemini-3.1-flash-lite
+
+   # Optional (only if using OpenAI)
+   OPENAI_API_KEY=your_openai_api_key
+
+   # Configuration
+   REPOLENS_CORS_ORIGINS=http://localhost:5173
    REPOLENS_EMBEDDING_PROVIDER=gemini
+
+   # Gemini Models
+   REPOLENS_GEMINI_MODEL=gemini-3.1-flash-lite
+
+   # OpenAI Models (only if using OpenAI)
+   REPOLENS_OPENAI_MODEL=gpt-5-mini
+   REPOLENS_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
    ```
 4. Run the server: `python -m uvicorn backend.app:app --reload`
 
