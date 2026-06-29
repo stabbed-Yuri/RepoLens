@@ -100,7 +100,7 @@ export function HeroSection({
               onClick={() => onModelProviderChange("gemini")}
               className="rounded-full text-xs"
             >
-              Gemini 3.1 Flash Lite · 15 RPM · 250K TPM · 500 RPD
+              Gemini 3.1 Flash Lite
             </Button>
           </div>
         </div>
