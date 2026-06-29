@@ -90,7 +90,7 @@ export function HeroSection({
               onClick={() => onModelProviderChange("openai")}
               className="rounded-full text-xs"
             >
-              OpenAI current
+              OpenAI GPT-4.1-mini
             </Button>
             <Button
               type="button"
