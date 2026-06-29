@@ -47,17 +47,10 @@ As an alternative deployment strategy, the frontend has been successfully deploy
 
 1.  **Repository Ingestion**: The user provides a public GitHub URL.
 2.  **Context Packing**: The backend clones the repository, scans it using heuristics to identify key entry points, manifests, and documentation, and builds a token-efficient `KnowledgePack`.
-3.  **Intelligent Questioning**: The `KnowledgePack` and selected provider (OpenAI by default, or Gemini) generate a targeted, medium-to-hard interview question focused on architecture, data flow, or implementation details in the repository.
+3.  **Intelligent Questioning**: The `KnowledgePack` and selected provider (Gemini or OpenAI) generate a targeted, medium-to-hard interview question focused on architecture, data flow, or implementation details in the repository.
 4.  **Dynamic Evaluation**: The user submits their answer. The active provider evaluates the response, assigns a score, gives feedback, and proposes the next follow-up question.
 5.  **Graceful Fallback**: The `ProviderRouter` falls back to the alternate LLM provider if the preferred one hits rate limits or quota errors, and uses deterministic local logic (including hash embeddings) when API providers are unavailable—keeping the demo usable even under tight free-tier limits.
----
-### AI Provider Defaults
 
-RepoLens supports both **OpenAI** and **Google Gemini** via a `ProviderRouter`. In the live app and local UI, **OpenAI is the default** interview provider (`gpt-4.1-mini`).
-
-**Why OpenAI is default:** During development and deployment, Google Cloud billing could not be enabled. Without billing, Gemini API free-tier quotas and rate limits are very low, which makes the demo unreliable for repeated interview turns. OpenAI was chosen as the default so users get a stable experience out of the box.
-
-**Gemini remains fully supported** for the hackathon’s “Best Use of Gemini API” track: users can switch to Gemini in the UI, or set `model_provider: "gemini"` on API requests. If the preferred provider hits quota or rate limits, `ProviderRouter` automatically falls back to the other provider (or to local hash embeddings for retrieval when no embedding API is available).
 ---
 
 ### Technologies Used
